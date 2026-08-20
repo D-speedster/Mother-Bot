@@ -1,4 +1,19 @@
+# ================================
+# فایل‌های حساس امنیتی
+# ================================
+# فایل محیطی شامل توکن‌ها و کلیدهای رمزنگاری
+.env
+*.env
+!.env.example
+
+# پایگاه داده SQLite (شامل توکن‌های رمزشده)
+*.db
+*.sqlite
+*.sqlite3
+
+# ================================
 # Python
+# ================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -7,6 +22,8 @@ __pycache__/
 env/
 venv/
 ENV/
+env.bak/
+venv.bak/
 build/
 develop-eggs/
 dist/
@@ -19,24 +36,48 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
-# Environment variables
-.env
-*.env
-
-# IDEs
+# ================================
+# IDEs و ویرایشگرها
+# ================================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
 
-# OS
+# ================================
+# سیستم‌عامل
+# ================================
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# Logs
+# ================================
+# لاگ‌ها و فایل‌های موقت
+# ================================
 *.log
+*.tmp
+*.temp
+logs/
+
+# ================================
+# بک‌آپ و فایل‌های موقت
+# ================================
+*.bak
+*.backup
+*.swp
+*~
