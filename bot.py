@@ -38,13 +38,15 @@ class TokenMaskingFilter(logging.Filter):
         
         # Masking توکن در args (اگر وجود داشته باشد)
         if record.args:
-            masked_args = []
-            for arg in record.args:
-                if isinstance(arg, str):
-                    masked_args.append(self.TOKEN_PATTERN.sub('[MASKED_TOKEN]', arg))
-                else:
-                    masked_args.append(arg)
-            record.args = tuple(masked_args)
+            # اگر args رشته باشد (نه tuple)
+            if isinstance(record.args, str):
+                record.args = self.TOKEN_PATTERN.sub('[MASKED_TOKEN]', record.args)
+            # اگر tuple باشد
+            elif isinstance(record.args, tuple):
+                record.args = tuple(
+                    self.TOKEN_PATTERN.sub('[MASKED_TOKEN]', arg) if isinstance(arg, str) else arg
+                    for arg in record.args
+                )
         
         return True
 
@@ -61,14 +63,19 @@ def setup_logging():
     )
     handler.setFormatter(formatter)
     
-    # اضافه کردن Token Masking Filter
+    # ساخت Token Masking Filter
     token_filter = TokenMaskingFilter()
+    
+    # اضافه کردن فیلتر به handler
     handler.addFilter(token_filter)
     
     # تنظیم root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     root_logger.addHandler(handler)
+    
+    # اعمال فیلتر روی root logger برای پوشش همه logger‌ها
+    root_logger.addFilter(token_filter)
     
     return root_logger
 
