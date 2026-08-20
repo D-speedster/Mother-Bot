@@ -10,6 +10,7 @@ import logging
 
 from config import BOT_TYPES
 from services import (
+    BotService,
     validate_bot_token,
     BotValidationError,
     InvalidTokenError,
@@ -156,7 +157,11 @@ async def callback_cancel_creation(callback: CallbackQuery, state: FSMContext):
 
 
 @router.message(StateFilter(BotCreation.waiting_for_token))
-async def handle_token_input(message: Message, state: FSMContext, bot_service):
+async def handle_token_input(
+    message: Message,
+    state: FSMContext,
+    bot_service: BotService
+):
     """دریافت و اعتبارسنجی واقعی توکن با API تلگرام و ذخیره در دیتابیس"""
     token = message.text.strip()
     user_id = message.from_user.id
@@ -240,7 +245,7 @@ async def handle_token_input(message: Message, state: FSMContext, bot_service):
     
     except InvalidTokenError as e:
         # توکن نامعتبر (401)
-        # ⚠️ SECURITY: str(e) می‌تواند حاوی اطلاعات حساس باشد
+        # ⚠️ SECURITY: str(e) را به کاربر نشان نمی‌دهیم
         await processing_msg.delete()
         
         error_message = """
@@ -256,7 +261,10 @@ async def handle_token_input(message: Message, state: FSMContext, bot_service):
         """
         
         await message.answer(error_message)
-        logger.warning(f"توکن نامعتبر دریافت شد از کاربر {user_id}")
+        # ⚠️ جزئیات خطا فقط در log
+        logger.warning(
+            f"توکن نامعتبر دریافت شد از کاربر {user_id}: {type(e).__name__}"
+        )
     
     except TelegramRateLimitError as e:
         # محدودیت تعداد درخواست (429)
@@ -328,7 +336,7 @@ async def handle_token_input(message: Message, state: FSMContext, bot_service):
 
 
 @router.callback_query(F.data == "my_bots")
-async def callback_my_bots(callback: CallbackQuery, bot_service):
+async def callback_my_bots(callback: CallbackQuery, bot_service: BotService):
     """نمایش لیست ربات‌های کاربر از دیتابیس"""
     user_id = callback.from_user.id
     
@@ -409,15 +417,19 @@ async def callback_back_to_main(callback: CallbackQuery):
     """بازگشت به منوی اصلی"""
     from handlers.start import get_main_keyboard
     
+    # ⚠️ UX: فقط یک پیام ارسال می‌کنیم، نه دو تا
     text = """
 🏠 منوی اصلی
 
-لطفاً از منوی زیر گزینه مورد نظر خود را انتخاب کنید:
+به منوی اصلی بازگشتید.
+لطفاً از دکمه‌های زیر گزینه مورد نظر خود را انتخاب کنید:
     """
     
-    await callback.message.edit_text(text)
+    # پیام inline را حذف می‌کنیم و فقط keyboard اصلی را نمایش می‌دهیم
+    await callback.message.delete()
     await callback.message.answer(
-        "به منوی اصلی بازگشتید:",
+        text,
         reply_markup=get_main_keyboard()
     )
+    await callback.answer()
     await callback.answer()
