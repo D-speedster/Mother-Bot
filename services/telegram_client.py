@@ -52,6 +52,8 @@ class TelegramClient:
             NetworkTimeoutError: زمان‌توقف شبکه
             TelegramAPIError: سایر خطاهای API
         """
+        # Masking توکن برای لاگ‌ها (جلوگیری از نشت در exception messages)
+        masked_token = f"{token[:8]}...[MASKED]" if len(token) > 8 else "[MASKED]"
         url = f"{self.BASE_URL}/bot{token}/getMe"
         
         try:
@@ -63,19 +65,19 @@ class TelegramClient:
                     if response.status == 401:
                         # توکن نامعتبر
                         error_desc = data.get('description', 'Unauthorized')
-                        logger.warning(f"توکن نامعتبر: {error_desc}")
+                        logger.warning(f"توکن نامعتبر [{masked_token}]: {error_desc}")
                         raise InvalidTokenError(f"توکن نامعتبر: {error_desc}")
                     
                     elif response.status == 429:
                         # محدودیت تعداد درخواست
                         retry_after = data.get('parameters', {}).get('retry_after')
-                        logger.warning(f"محدودیت rate limit. retry_after: {retry_after}")
+                        logger.warning(f"محدودیت rate limit [{masked_token}]. retry_after: {retry_after}")
                         raise TelegramRateLimitError(retry_after=retry_after)
                     
                     elif response.status >= 500:
                         # خطای سمت سرور تلگرام
                         error_desc = data.get('description', 'Server Error')
-                        logger.error(f"خطای سرور تلگرام [{response.status}]: {error_desc}")
+                        logger.error(f"خطای سرور تلگرام [{masked_token}] [{response.status}]: {error_desc}")
                         raise TelegramAPIError(
                             f"خطای سرور تلگرام: {error_desc}",
                             status_code=response.status
@@ -84,7 +86,7 @@ class TelegramClient:
                     elif response.status != 200:
                         # سایر خطاها
                         error_desc = data.get('description', 'Unknown Error')
-                        logger.error(f"خطای API تلگرام [{response.status}]: {error_desc}")
+                        logger.error(f"خطای API تلگرام [{masked_token}] [{response.status}]: {error_desc}")
                         raise TelegramAPIError(
                             error_desc,
                             status_code=response.status,
@@ -94,7 +96,7 @@ class TelegramClient:
                     # بررسی فیلد ok
                     if not data.get('ok'):
                         error_desc = data.get('description', 'Unknown Error')
-                        logger.error(f"پاسخ نامعتبر از API: {error_desc}")
+                        logger.error(f"پاسخ نامعتبر از API [{masked_token}]: {error_desc}")
                         raise TelegramAPIError(error_desc)
                     
                     # موفق - برگرداندن result
@@ -103,21 +105,34 @@ class TelegramClient:
                     return result
         
         except aiohttp.ClientConnectionError as e:
-            logger.error(f"خطای اتصال به سرور تلگرام: {e}")
+            # ⚠️ SECURITY: str(e) ممکن است URL (و توکن) را لو دهد
+            # فقط نوع خطا را log می‌کنیم
+            logger.error(f"خطای اتصال [{masked_token}]: {type(e).__name__}")
             raise TelegramAPIError("خطا در اتصال به سرور تلگرام. لطفاً اتصال اینترنت خود را بررسی کنید.")
         
-        except aiohttp.ServerTimeoutError as e:
-            logger.error(f"زمان‌توقف در ارتباط با تلگرام: {e}")
+        except aiohttp.ServerTimeoutError:
+            # ⚠️ SECURITY: پیام خطا را log نمی‌کنیم
+            logger.error(f"زمان‌توقف در ارتباط با تلگرام [{masked_token}]: ServerTimeoutError")
             raise NetworkTimeoutError()
         
-        except asyncio.TimeoutError as e:
-            logger.error(f"زمان‌توقف در ارتباط با تلگرام: {e}")
+        except asyncio.TimeoutError:
+            # ⚠️ SECURITY: پیام خطا را log نمی‌کنیم
+            logger.error(f"زمان‌توقف در ارتباط با تلگرام [{masked_token}]: TimeoutError")
             raise NetworkTimeoutError()
         
         except aiohttp.ClientError as e:
-            logger.error(f"خطای کلاینت HTTP: {e}")
-            raise TelegramAPIError(f"خطا در ارتباط با تلگرام: {str(e)}")
+            # ⚠️ SECURITY: فقط نوع خطا را log می‌کنیم
+            logger.error(f"خطای کلاینت HTTP [{masked_token}]: {type(e).__name__}")
+            raise TelegramAPIError("خطا در ارتباط با تلگرام.")
+        
+        except (InvalidTokenError, TelegramRateLimitError, NetworkTimeoutError, TelegramAPIError):
+            # این خطاها را مستقیماً raise می‌کنیم (قبلاً log شده‌اند)
+            raise
         
         except Exception as e:
-            logger.error(f"خطای غیرمنتظره در TelegramClient: {e}", exc_info=True)
-            raise TelegramAPIError(f"خطای غیرمنتظره: {str(e)}")
+            # ⚠️ SECURITY: exc_info=True را نگه می‌داریم ولی str(e) را در پیام نمی‌گذاریم
+            logger.error(
+                f"خطای غیرمنتظره در TelegramClient [{masked_token}]: {type(e).__name__}",
+                exc_info=True
+            )
+            raise TelegramAPIError("خطای غیرمنتظره در ارتباط با تلگرام.")

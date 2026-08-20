@@ -21,6 +21,17 @@ class TokenEncryptionService:
     Security Notes:
     - کلید FERNET_KEY باید در .env باشد و به Git commit نشود
     - برای تولید کلید جدید: Fernet.generate_key().decode()
+    
+    ⚠️ IMPORTANT - Key Rotation:
+    اگر کلید FERNET_KEY تغییر کند، تمام توکن‌های قدیمی در دیتابیس
+    غیرقابل رمزگشایی می‌شوند.
+    
+    راه‌حل‌های آینده:
+    1. افزودن فیلد key_version به جدول bots
+    2. نگهداری چند کلید همزمان (active + retired keys)
+    3. Migration تدریجی توکن‌ها به کلید جدید
+    
+    این موارد در roadmap آینده قرار دارند.
     """
     
     def __init__(self, encryption_key: Optional[str] = None):
@@ -65,6 +76,10 @@ class TokenEncryptionService:
             
         Raises:
             ValueError: اگر ورودی خالی یا نامعتبر باشد
+            
+        Security:
+        - متن خام هرگز در لاگ ثبت نمی‌شود
+        - فقط وضعیت موفق/ناموفق log می‌شود
         """
         if not plaintext:
             raise ValueError("متن برای رمزنگاری نمی‌تواند خالی باشد")
@@ -75,12 +90,14 @@ class TokenEncryptionService:
             encrypted_bytes = self._fernet.encrypt(plaintext_bytes)
             encrypted_str = encrypted_bytes.decode('utf-8')
             
-            logger.debug("✅ توکن با موفقیت رمزنگاری شد")
+            # ⚠️ SECURITY: هرگز plaintext را log نمی‌کنیم
+            logger.debug("✅ رمزنگاری موفق")
             return encrypted_str
             
         except Exception as e:
-            logger.error(f"❌ خطا در رمزنگاری: {e}", exc_info=True)
-            raise ValueError(f"خطا در رمزنگاری: {e}")
+            # ⚠️ SECURITY: از str(e) استفاده نمی‌کنیم، فقط نوع خطا
+            logger.error(f"❌ خطا در رمزنگاری: {type(e).__name__}", exc_info=True)
+            raise ValueError(f"خطا در رمزنگاری")
     
     def decrypt(self, encrypted: str) -> str:
         """
@@ -94,6 +111,15 @@ class TokenEncryptionService:
             
         Raises:
             ValueError: اگر رمزگشایی ناموفق باشد (کلید اشتباه یا داده خراب)
+            
+        Security:
+        - متن رمزگشایی‌شده هرگز در لاگ ثبت نمی‌شود
+        - InvalidToken به طور جداگانه catch می‌شود
+        
+        ⚠️ Timing Attack:
+        Fernet خود در برابر timing attack مقاوم است، اما اگر
+        چندین کلید را check کنیم (key rotation)، باید مراقب باشیم
+        که زمان پاسخ یکسان باشد.
         """
         if not encrypted:
             raise ValueError("متن رمزشده نمی‌تواند خالی باشد")
@@ -104,17 +130,21 @@ class TokenEncryptionService:
             decrypted_bytes = self._fernet.decrypt(encrypted_bytes)
             decrypted_str = decrypted_bytes.decode('utf-8')
             
-            logger.debug("✅ توکن با موفقیت رمزگشایی شد")
+            # ⚠️ SECURITY: هرگز decrypted text را log نمی‌کنیم
+            logger.debug("✅ رمزگشایی موفق")
             return decrypted_str
             
         except InvalidToken:
-            logger.error("❌ رمزگشایی ناموفق: کلید رمزنگاری اشتباه یا داده خراب است")
+            # کلید اشتباه یا داده خراب
+            logger.error("❌ رمزگشایی ناموفق: InvalidToken")
             raise ValueError(
                 "رمزگشایی ناموفق. ممکن است کلید رمزنگاری تغییر کرده یا داده خراب شده باشد"
             )
         except Exception as e:
-            logger.error(f"❌ خطا در رمزگشایی: {e}", exc_info=True)
-            raise ValueError(f"خطا در رمزگشایی: {e}")
+            # سایر خطاها
+            # ⚠️ SECURITY: از str(e) استفاده نمی‌کنیم
+            logger.error(f"❌ خطا در رمزگشایی: {type(e).__name__}", exc_info=True)
+            raise ValueError(f"خطا در رمزگشایی")
     
     @staticmethod
     def generate_key() -> str:
