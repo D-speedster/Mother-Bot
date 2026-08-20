@@ -132,11 +132,15 @@ class BotService:
             owner_id: ID کاربر تلگرام
             
         Returns:
-            لیست ربات‌ها (بدون token_encrypted)
+            لیست ربات‌ها (بدون token_encrypted برای امنیت)
+            
+        Security:
+        - token_encrypted از repository برنگردانده می‌شود
+        - Repository قبلاً آن را حذف کرده است
         """
         bots = await self.repository.get_bots_by_owner(owner_id)
         
-        # حذف فیلد token_encrypted از خروجی
+        # Repository قبلاً token_encrypted را حذف کرده، فقط format می‌کنیم
         return [
             {
                 'bot_id': bot['id'],
@@ -150,27 +154,71 @@ class BotService:
             for bot in bots
         ]
     
-    async def get_bot_token(self, bot_telegram_id: int) -> str:
+    async def get_bot_token(
+        self,
+        bot_id: int,
+        owner_id: int
+    ) -> str:
         """
-        دریافت توکن رمزگشایی‌شده یک ربات
+        دریافت توکن رمزگشایی‌شده یک ربات (با بررسی ownership)
         
         Args:
-            bot_telegram_id: ID تلگرام ربات
+            bot_id: ID رکورد در دیتابیس
+            owner_id: ID کاربر تلگرام (برای تأیید مالکیت)
             
         Returns:
             توکن خام (رمزگشایی‌شده)
             
         Raises:
-            ValueError: اگر ربات یافت نشود
+            ValueError: اگر ربات یافت نشود یا متعلق به کاربر نباشد
+            
+        Security:
+        - بررسی owner_id برای جلوگیری از دسترسی غیرمجاز
+        - فقط صاحب ربات می‌تواند توکن را دریافت کند
         """
-        bot = await self.repository.get_bot_by_telegram_id(bot_telegram_id)
+        # دریافت توکن رمزشده با بررسی ownership
+        token_encrypted = await self.repository.get_bot_token_encrypted(
+            bot_id, owner_id
+        )
         
-        if not bot:
-            raise ValueError(f"ربات با ID {bot_telegram_id} یافت نشد")
+        if not token_encrypted:
+            raise ValueError(
+                f"ربات با ID {bot_id} یافت نشد یا متعلق به این کاربر نیست"
+            )
         
         # رمزگشایی توکن
-        token = self.encryption.decrypt(bot['token_encrypted'])
+        token = self.encryption.decrypt(token_encrypted)
         return token
+    
+    async def delete_bot(
+        self,
+        bot_id: int,
+        owner_id: int
+    ) -> bool:
+        """
+        حذف ربات (با بررسی ownership)
+        
+        Args:
+            bot_id: ID رکورد در دیتابیس
+            owner_id: ID کاربر تلگرام (برای تأیید مالکیت)
+            
+        Returns:
+            True اگر حذف موفق باشد
+            
+        Raises:
+            ValueError: اگر ربات یافت نشود یا متعلق به کاربر نباشد
+            
+        Security:
+        - بررسی owner_id برای جلوگیری از حذف غیرمجاز
+        """
+        success = await self.repository.delete_bot(bot_id, owner_id)
+        
+        if not success:
+            raise ValueError(
+                f"ربات با ID {bot_id} یافت نشد یا متعلق به این کاربر نیست"
+            )
+        
+        return True
 
 
 async def validate_bot_token(token: str) -> Dict[str, Any]:

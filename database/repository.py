@@ -162,20 +162,25 @@ class BotRepository:
     
     async def get_bots_by_owner(self, owner_id: int) -> List[Dict[str, Any]]:
         """
-        دریافت لیست ربات‌های یک کاربر
+        دریافت لیست ربات‌های یک کاربر (بدون token_encrypted)
         
         Args:
             owner_id: ID کاربر تلگرام
             
         Returns:
-            لیست Dict‌های حاوی اطلاعات ربات‌ها
+            لیست Dict‌های حاوی اطلاعات ربات‌ها (بدون token برای امنیت)
+            
+        Security:
+        - token_encrypted به handler برگردانده نمی‌شود
+        - فقط اطلاعات عمومی ربات در لیست قرار می‌گیرد
         """
         try:
+            # ⚠️ SECURITY: token_encrypted را در SELECT نمی‌آوریم
             cursor = await self._conn.execute(
                 """
                 SELECT 
                     id, owner_id, bot_telegram_id, username, first_name,
-                    bot_type, token_encrypted, status, created_at, updated_at
+                    bot_type, status, created_at, updated_at
                 FROM bots
                 WHERE owner_id = ?
                 ORDER BY created_at DESC
@@ -193,16 +198,63 @@ class BotRepository:
                     'username': row[3],
                     'first_name': row[4],
                     'bot_type': row[5],
-                    'token_encrypted': row[6],
-                    'status': row[7],
-                    'created_at': row[8],
-                    'updated_at': row[9]
+                    'status': row[6],
+                    'created_at': row[7],
+                    'updated_at': row[8]
+                    # ⚠️ SECURITY: token_encrypted اینجا نیست
                 }
                 for row in rows
             ]
         
         except Exception as e:
             logger.error(f"❌ خطا در دریافت لیست ربات‌ها: {e}", exc_info=True)
+            raise
+    
+    async def get_bot_token_encrypted(
+        self,
+        bot_id: int,
+        owner_id: int
+    ) -> Optional[str]:
+        """
+        دریافت توکن رمزشده یک ربات (با بررسی ownership)
+        
+        Args:
+            bot_id: ID رکورد در دیتابیس
+            owner_id: ID کاربر تلگرام (برای تأیید مالکیت)
+            
+        Returns:
+            توکن رمزشده یا None اگر ربات یافت نشود یا متعلق به کاربر نباشد
+            
+        Security:
+        - بررسی owner_id برای جلوگیری از دسترسی غیرمجاز
+        - فقط صاحب ربات می‌تواند توکن را دریافت کند
+        """
+        try:
+            cursor = await self._conn.execute(
+                """
+                SELECT token_encrypted
+                FROM bots
+                WHERE id = ? AND owner_id = ?
+                """,
+                (bot_id, owner_id)
+            )
+            
+            row = await cursor.fetchone()
+            
+            if row:
+                logger.info(
+                    f"✅ توکن ربات دریافت شد: bot_id={bot_id}, owner={owner_id}"
+                )
+                return row[0]
+            else:
+                logger.warning(
+                    f"⚠️ ربات یافت نشد یا متعلق به این کاربر نیست: "
+                    f"bot_id={bot_id}, owner={owner_id}"
+                )
+                return None
+        
+        except Exception as e:
+            logger.error(f"❌ خطا در دریافت توکن ربات: {e}", exc_info=True)
             raise
     
     async def update_bot_status(self, bot_id: int, status: str) -> bool:
@@ -241,29 +293,40 @@ class BotRepository:
             logger.error(f"❌ خطا در به‌روزرسانی وضعیت ربات: {e}", exc_info=True)
             raise
     
-    async def delete_bot(self, bot_id: int) -> bool:
+    async def delete_bot(self, bot_id: int, owner_id: int) -> bool:
         """
-        حذف ربات از دیتابیس
+        حذف ربات از دیتابیس (با بررسی ownership)
         
         Args:
             bot_id: ID رکورد در دیتابیس
+            owner_id: ID کاربر تلگرام (برای تأیید مالکیت)
             
         Returns:
-            True اگر حذف موفق باشد، False اگر رکورد یافت نشود
+            True اگر حذف موفق باشد، False اگر رکورد یافت نشود یا متعلق به کاربر نباشد
+            
+        Security:
+        - بررسی owner_id برای جلوگیری از حذف ربات دیگران
+        - فقط صاحب ربات می‌تواند آن را حذف کند
         """
         try:
+            # ⚠️ SECURITY: بررسی owner_id برای جلوگیری از unauthorized deletion
             cursor = await self._conn.execute(
-                "DELETE FROM bots WHERE id = ?",
-                (bot_id,)
+                "DELETE FROM bots WHERE id = ? AND owner_id = ?",
+                (bot_id, owner_id)
             )
             
             await self._conn.commit()
             
             if cursor.rowcount > 0:
-                logger.info(f"✅ ربات حذف شد: ID={bot_id}")
+                logger.info(
+                    f"✅ ربات حذف شد: bot_id={bot_id}, owner={owner_id}"
+                )
                 return True
             else:
-                logger.warning(f"⚠️ ربات با ID={bot_id} یافت نشد")
+                logger.warning(
+                    f"⚠️ ربات یافت نشد یا متعلق به این کاربر نیست: "
+                    f"bot_id={bot_id}, owner={owner_id}"
+                )
                 return False
         
         except Exception as e:
