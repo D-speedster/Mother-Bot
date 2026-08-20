@@ -16,6 +16,21 @@ if not BOT_TOKEN:
         "مثال: BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
     )
 
+# کلید رمزنگاری Fernet - اجباری از .env
+FERNET_KEY = os.getenv('FERNET_KEY')
+if not FERNET_KEY:
+    raise ValueError(
+        "🔴 خطا: متغیر محیطی FERNET_KEY در فایل .env تنظیم نشده است!\n"
+        "لطفاً فایل .env را ویرایش کرده و کلید رمزنگاری را در آن قرار دهید.\n"
+        "برای تولید کلید جدید از Python استفاده کنید:\n"
+        "  from cryptography.fernet import Fernet\n"
+        "  print(Fernet.generate_key().decode())\n"
+        "سپس در .env اضافه کنید: FERNET_KEY=<کلید_تولیدشده>"
+    )
+
+# مسیر پایگاه داده
+DATABASE_PATH = os.getenv('DATABASE_PATH', 'mother_bot.db')
+
 # انواع ربات‌های قابل ساخت
 BOT_TYPES = {
     "shop": "🛒 ربات فروشگاهی",

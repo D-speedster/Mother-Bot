@@ -14,7 +14,8 @@ from services import (
     BotValidationError,
     InvalidTokenError,
     TelegramRateLimitError,
-    NetworkTimeoutError
+    NetworkTimeoutError,
+    TokenAlreadyRegisteredError
 )
 
 logger = logging.getLogger(__name__)
@@ -155,39 +156,29 @@ async def callback_cancel_creation(callback: CallbackQuery, state: FSMContext):
 
 
 @router.message(StateFilter(BotCreation.waiting_for_token))
-async def handle_token_input(message: Message, state: FSMContext):
-    """دریافت و اعتبارسنجی واقعی توکن با API تلگرام"""
+async def handle_token_input(message: Message, state: FSMContext, bot_service):
+    """دریافت و اعتبارسنجی واقعی توکن با API تلگرام و ذخیره در دیتابیس"""
     token = message.text.strip()
+    user_id = message.from_user.id
     
     # نمایش پیام در حال بررسی
-    processing_msg = await message.answer("⏳ در حال بررسی توکن...")
+    processing_msg = await message.answer("⏳ در حال بررسی و ثبت توکن...")
     
     try:
-        # اعتبارسنجی توکن با API تلگرام (فراخوانی getMe)
-        bot_info = await validate_bot_token(token)
-        
         # دریافت اطلاعات از state
         data = await state.get_data()
         bot_type = data.get('creating_bot_type', 'unknown')
         selected_bot = BOT_TYPES.get(bot_type, "ربات")
         
-        # ذخیره توکن و اطلاعات ربات در state
-        user_bots = data.get('user_bots', [])
-        user_bots.append({
-            'type': bot_type,
-            'token': token,
-            'bot_id': bot_info['id'],
-            'bot_username': bot_info['username'],
-            'bot_name': bot_info['first_name'],
-            'created_at': 'اکنون'
-        })
+        # ثبت ربات (اعتبارسنجی + رمزنگاری + ذخیره در دیتابیس)
+        result = await bot_service.register_bot(
+            owner_id=user_id,
+            token=token,
+            bot_type=bot_type
+        )
         
-        await state.update_data(user_bots=user_bots)
-        
-        # پاک کردن state ساخت ربات
+        # پاک کردن state
         await state.clear()
-        # بازگرداندن لیست ربات‌ها به state
-        await state.update_data(user_bots=user_bots)
         
         # حذف پیام "در حال بررسی"
         await processing_msg.delete()
@@ -200,21 +191,50 @@ async def handle_token_input(message: Message, state: FSMContext):
         reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
         
         success_message = f"""
-✅ توکن با موفقیت تایید شد!
+✅ توکن با موفقیت تایید و ثبت شد!
 
 نوع ربات: {selected_bot}
-🤖 نام ربات: {bot_info['first_name']}
-👤 یوزرنیم: @{bot_info['username']}
-🆔 شناسه: {bot_info['id']}
-وضعیت: ✅ فعال و آماده استفاده
+🤖 نام ربات: {result['first_name']}
+👤 یوزرنیم: @{result['username']}
+🆔 شناسه: {result['telegram_id']}
+🔐 وضعیت: ✅ فعال و آماده استفاده
 
 🎉 تبریک! ربات شما با موفقیت ثبت و راه‌اندازی شد.
+
+🔒 توکن شما به صورت رمزنگاری‌شده در دیتابیس ذخیره شده است.
 
 برای مدیریت ربات‌های خود، از منوی "🤖 مدیریت ربات‌ها" استفاده کنید.
         """
         
         await message.answer(success_message, reply_markup=reply_markup)
-        logger.info(f"ربات جدید ثبت شد: @{bot_info['username']} توسط کاربر {message.from_user.id}")
+        logger.info(
+            f"✅ ربات جدید ثبت شد: @{result['username']} "
+            f"(ID={result['bot_id']}) توسط کاربر {user_id}"
+        )
+    
+    except TokenAlreadyRegisteredError as e:
+        # ربات قبلاً ثبت شده است
+        await processing_msg.delete()
+        
+        error_message = f"""
+⚠️ این ربات قبلاً ثبت شده است!
+
+{str(e)}
+
+این ربات قبلاً در سیستم ما موجود است و نمی‌توان مجدداً آن را ثبت کرد.
+
+💡 اگر صاحب این ربات هستید، می‌توانید از قسمت "📋 ربات‌های من" آن را مدیریت کنید.
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton(text="📋 ربات‌های من", callback_data="my_bots")],
+            [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_bot_management")]
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        
+        await message.answer(error_message, reply_markup=reply_markup)
+        await state.clear()
+        logger.warning(f"⚠️ تلاش برای ثبت مجدد ربات توسط کاربر {user_id}: {str(e)}")
     
     except InvalidTokenError as e:
         # توکن نامعتبر (401)
@@ -235,7 +255,7 @@ async def handle_token_input(message: Message, state: FSMContext):
         """
         
         await message.answer(error_message)
-        logger.warning(f"توکن نامعتبر دریافت شد از کاربر {message.from_user.id}")
+        logger.warning(f"توکن نامعتبر دریافت شد از کاربر {user_id}")
     
     except TelegramRateLimitError as e:
         # محدودیت تعداد درخواست (429)
@@ -250,7 +270,7 @@ async def handle_token_input(message: Message, state: FSMContext):
         """
         
         await message.answer(error_message)
-        logger.warning(f"Rate limit برای کاربر {message.from_user.id}")
+        logger.warning(f"Rate limit برای کاربر {user_id}")
     
     except NetworkTimeoutError as e:
         # زمان‌توقف شبکه
@@ -269,7 +289,7 @@ async def handle_token_input(message: Message, state: FSMContext):
         """
         
         await message.answer(error_message)
-        logger.warning(f"Timeout برای کاربر {message.from_user.id}")
+        logger.warning(f"Timeout برای کاربر {user_id}")
     
     except BotValidationError as e:
         # سایر خطاهای اعتبارسنجی
@@ -285,7 +305,7 @@ async def handle_token_input(message: Message, state: FSMContext):
         """
         
         await message.answer(error_message)
-        logger.warning(f"خطای اعتبارسنجی از کاربر {message.from_user.id}: {str(e)}")
+        logger.warning(f"خطای اعتبارسنجی از کاربر {user_id}: {str(e)}")
     
     except Exception as e:
         # خطای غیرمنتظره
@@ -299,56 +319,63 @@ async def handle_token_input(message: Message, state: FSMContext):
         """
         
         await message.answer(error_message)
-        logger.error(f"خطای غیرمنتظره در اعتبارسنجی توکن: {e}", exc_info=True)
+        logger.error(f"خطای غیرمنتظره در ثبت ربات: {e}", exc_info=True)
 
 
 @router.callback_query(F.data == "my_bots")
-async def callback_my_bots(callback: CallbackQuery, state: FSMContext):
-    """نمایش لیست ربات‌های کاربر با اطلاعات واقعی"""
-    data = await state.get_data()
-    user_bots = data.get('user_bots', [])
+async def callback_my_bots(callback: CallbackQuery, bot_service):
+    """نمایش لیست ربات‌های کاربر از دیتابیس"""
+    user_id = callback.from_user.id
     
-    if not user_bots:
-        # هیچ رباتی ساخته نشده
-        keyboard = [
-            [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_bot_management")]
-        ]
-        reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    try:
+        # دریافت لیست ربات‌ها از دیتابیس
+        user_bots = await bot_service.get_user_bots(user_id)
         
-        text = """
+        if not user_bots:
+            # هیچ رباتی ساخته نشده
+            keyboard = [
+                [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_bot_management")]
+            ]
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+            
+            text = """
 📋 ربات‌های من
 
 شما هنوز هیچ رباتی نساخته‌اید.
 
 برای ساخت اولین ربات خود، روی دکمه "➕ ساخت ربات جدید" کلیک کنید.
-        """
-    else:
-        # نمایش لیست ربات‌ها با اطلاعات واقعی
-        bots_list = "\n\n".join([
-            f"🤖 {BOT_TYPES.get(bot['type'], 'ربات')}\n"
-            f"📛 نام: {bot.get('bot_name', 'نامشخص')}\n"
-            f"👤 یوزرنیم: @{bot.get('bot_username', 'نامشخص')}\n"
-            f"🆔 شناسه: {bot.get('bot_id', 'نامشخص')}\n"
-            f"⏰ زمان ساخت: {bot.get('created_at', 'نامشخص')}\n"
-            f"✅ وضعیت: فعال"
-            for bot in user_bots
-        ])
-        
-        keyboard = [
-            [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_bot_management")]
-        ]
-        reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-        
-        text = f"""
+            """
+        else:
+            # نمایش لیست ربات‌ها
+            bots_list = "\n\n".join([
+                f"🤖 {BOT_TYPES.get(bot['bot_type'], 'ربات')}\n"
+                f"📛 نام: {bot.get('first_name', 'نامشخص')}\n"
+                f"👤 یوزرنیم: @{bot.get('username', 'نامشخص')}\n"
+                f"🆔 شناسه: {bot.get('telegram_id', 'نامشخص')}\n"
+                f"⏰ زمان ساخت: {bot.get('created_at', 'نامشخص')}\n"
+                f"✅ وضعیت: {bot.get('status', 'نامشخص')}"
+                for bot in user_bots
+            ])
+            
+            keyboard = [
+                [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_bot_management")]
+            ]
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+            
+            text = f"""
 📋 ربات‌های من
 
 تعداد ربات‌ها: {len(user_bots)} عدد
 
 {bots_list}
-        """
+            """
+        
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+        await callback.answer()
     
-    await callback.message.edit_text(text, reply_markup=reply_markup)
-    await callback.answer()
+    except Exception as e:
+        logger.error(f"❌ خطا در نمایش لیست ربات‌ها: {e}", exc_info=True)
+        await callback.answer("❌ خطا در بارگذاری لیست ربات‌ها", show_alert=True)
 
 
 @router.callback_query(F.data == "back_to_bot_management")

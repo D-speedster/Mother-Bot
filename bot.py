@@ -7,8 +7,11 @@ import re
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, DATABASE_PATH
 from handlers import start_router, bot_maker_router
+from database import Database
+from database.repository import BotRepository
+from services import TokenEncryptionService, BotService
 
 
 class TokenMaskingFilter(logging.Filter):
@@ -86,16 +89,33 @@ logger = setup_logging()
 
 async def main():
     """تابع اصلی برای راه‌اندازی ربات"""
+    # راه‌اندازی پایگاه داده
+    database = Database(DATABASE_PATH)
+    await database.connect()
+    
+    # راه‌اندازی سرویس‌ها
+    encryption_service = TokenEncryptionService()
+    repository = BotRepository(database.connection)
+    bot_service = BotService(repository, encryption_service)
+    
     # ساخت Bot و Dispatcher
     bot = Bot(token=BOT_TOKEN)
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
+    
+    # اضافه کردن سرویس‌ها به middleware data (برای دسترسی در handlers)
+    dp.workflow_data.update({
+        'bot_service': bot_service,
+        'repository': repository,
+        'encryption': encryption_service
+    })
     
     # ثبت routerها
     dp.include_router(start_router)
     dp.include_router(bot_maker_router)
     
     logger.info("🤖 ربات در حال اجرا است...")
+    logger.info(f"📊 پایگاه داده: {DATABASE_PATH}")
     
     try:
         # حذف webhook و شروع polling
@@ -103,6 +123,7 @@ async def main():
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         await bot.session.close()
+        await database.disconnect()
 
 
 if __name__ == '__main__':

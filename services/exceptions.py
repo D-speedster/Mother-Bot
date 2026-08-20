@@ -50,3 +50,22 @@ class BotValidationError(TelegramAPIError):
     
     def __init__(self, message: str):
         super().__init__(message)
+
+
+class TokenAlreadyRegisteredError(BotValidationError):
+    """
+    خطای توکن تکراری - زمانی که ربات قبلاً ثبت شده است
+    
+    این خطا برای مدیریت Race Condition و جلوگیری از ثبت مجدد یک ربات استفاده می‌شود
+    """
+    
+    def __init__(self, bot_id: int, username: str = None):
+        self.bot_id = bot_id
+        self.username = username
+        
+        if username:
+            message = f"این ربات (@{username}) قبلاً ثبت شده است"
+        else:
+            message = f"این ربات (ID: {bot_id}) قبلاً ثبت شده است"
+        
+        super().__init__(message)

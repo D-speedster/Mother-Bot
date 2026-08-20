@@ -5,15 +5,172 @@ import logging
 from typing import Dict, Any
 
 from .telegram_client import TelegramClient
+from .encryption import TokenEncryptionService
 from .exceptions import (
     BotValidationError,
     InvalidTokenError,
     TelegramRateLimitError,
     NetworkTimeoutError,
-    TelegramAPIError
+    TelegramAPIError,
+    TokenAlreadyRegisteredError
 )
 
 logger = logging.getLogger(__name__)
+
+
+class BotService:
+    """
+    سرویس مدیریت ربات‌ها
+    
+    معماری لایه‌بندی: Handler -> BotService -> Repository -> Database
+    
+    مسئولیت‌ها:
+    - اعتبارسنجی توکن از طریق Telegram API
+    - رمزنگاری توکن قبل از ذخیره
+    - مدیریت منطق کسب‌وکار ربات‌ها
+    """
+    
+    def __init__(self, repository, encryption_service: TokenEncryptionService):
+        """
+        Args:
+            repository: BotRepository instance
+            encryption_service: TokenEncryptionService instance
+        """
+        self.repository = repository
+        self.encryption = encryption_service
+    
+    async def register_bot(
+        self,
+        owner_id: int,
+        token: str,
+        bot_type: str
+    ) -> Dict[str, Any]:
+        """
+        ثبت ربات جدید
+        
+        فرآیند:
+        1. اعتبارسنجی توکن از طریق Telegram API
+        2. بررسی عدم وجود قبلی در دیتابیس
+        3. رمزنگاری توکن
+        4. ذخیره در دیتابیس
+        
+        Args:
+            owner_id: ID کاربر تلگرام (صاحب ربات)
+            token: توکن ربات (خام)
+            bot_type: نوع ربات
+            
+        Returns:
+            Dict شامل:
+            {
+                'bot_id': int (ID در دیتابیس),
+                'telegram_id': int,
+                'username': str,
+                'first_name': str,
+                'bot_type': str
+            }
+            
+        Raises:
+            BotValidationError: اگر توکن نامعتبر باشد
+            TokenAlreadyRegisteredError: اگر ربات قبلاً ثبت شده باشد
+        """
+        # گام 1: اعتبارسنجی توکن از طریق getMe
+        bot_info = await validate_bot_token(token)
+        
+        # گام 2: بررسی عدم وجود قبلی
+        existing_bot = await self.repository.get_bot_by_telegram_id(bot_info['id'])
+        if existing_bot:
+            logger.warning(
+                f"⚠️ تلاش برای ثبت مجدد ربات موجود: @{bot_info['username']} "
+                f"توسط کاربر {owner_id}"
+            )
+            raise TokenAlreadyRegisteredError(
+                bot_id=bot_info['id'],
+                username=bot_info['username']
+            )
+        
+        # گام 3: رمزنگاری توکن
+        token_encrypted = self.encryption.encrypt(token)
+        
+        # گام 4: ذخیره در دیتابیس
+        try:
+            bot_id = await self.repository.create_bot(
+                owner_id=owner_id,
+                bot_telegram_id=bot_info['id'],
+                username=bot_info.get('username'),
+                first_name=bot_info.get('first_name'),
+                bot_type=bot_type,
+                token_encrypted=token_encrypted,
+                status='active'
+            )
+            
+            logger.info(
+                f"✅ ربات با موفقیت ثبت شد: @{bot_info['username']} "
+                f"(DB_ID={bot_id}, TG_ID={bot_info['id']}) توسط کاربر {owner_id}"
+            )
+            
+            return {
+                'bot_id': bot_id,
+                'telegram_id': bot_info['id'],
+                'username': bot_info.get('username'),
+                'first_name': bot_info.get('first_name'),
+                'bot_type': bot_type
+            }
+        
+        except TokenAlreadyRegisteredError:
+            # Race Condition: ربات در همین لحظه توسط فرآیند دیگری ثبت شده
+            logger.warning(
+                f"⚠️ Race Condition: ربات @{bot_info['username']} "
+                f"در حین ثبت توسط فرآیند دیگری ایجاد شد"
+            )
+            raise
+    
+    async def get_user_bots(self, owner_id: int) -> list:
+        """
+        دریافت لیست ربات‌های یک کاربر
+        
+        Args:
+            owner_id: ID کاربر تلگرام
+            
+        Returns:
+            لیست ربات‌ها (بدون token_encrypted)
+        """
+        bots = await self.repository.get_bots_by_owner(owner_id)
+        
+        # حذف فیلد token_encrypted از خروجی
+        return [
+            {
+                'bot_id': bot['id'],
+                'telegram_id': bot['bot_telegram_id'],
+                'username': bot['username'],
+                'first_name': bot['first_name'],
+                'bot_type': bot['bot_type'],
+                'status': bot['status'],
+                'created_at': bot['created_at']
+            }
+            for bot in bots
+        ]
+    
+    async def get_bot_token(self, bot_telegram_id: int) -> str:
+        """
+        دریافت توکن رمزگشایی‌شده یک ربات
+        
+        Args:
+            bot_telegram_id: ID تلگرام ربات
+            
+        Returns:
+            توکن خام (رمزگشایی‌شده)
+            
+        Raises:
+            ValueError: اگر ربات یافت نشود
+        """
+        bot = await self.repository.get_bot_by_telegram_id(bot_telegram_id)
+        
+        if not bot:
+            raise ValueError(f"ربات با ID {bot_telegram_id} یافت نشد")
+        
+        # رمزگشایی توکن
+        token = self.encryption.decrypt(bot['token_encrypted'])
+        return token
 
 
 async def validate_bot_token(token: str) -> Dict[str, Any]:
