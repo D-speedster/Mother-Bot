@@ -337,7 +337,7 @@ async def handle_token_input(
 
 @router.callback_query(F.data == "my_bots")
 async def callback_my_bots(callback: CallbackQuery, bot_service: BotService):
-    """نمایش لیست ربات‌های کاربر از دیتابیس"""
+    """نمایش لیست ربات‌های کاربر با دکمه‌های مدیریت"""
     user_id = callback.from_user.id
     
     try:
@@ -347,6 +347,7 @@ async def callback_my_bots(callback: CallbackQuery, bot_service: BotService):
         if not user_bots:
             # هیچ رباتی ساخته نشده
             keyboard = [
+                [InlineKeyboardButton(text="➕ ساخت ربات جدید", callback_data="create_new_bot")],
                 [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_bot_management")]
             ]
             reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -359,20 +360,25 @@ async def callback_my_bots(callback: CallbackQuery, bot_service: BotService):
 برای ساخت اولین ربات خود، روی دکمه "➕ ساخت ربات جدید" کلیک کنید.
             """
         else:
-            # نمایش لیست ربات‌ها
-            bots_list = "\n\n".join([
-                f"🤖 {BOT_TYPES.get(bot['bot_type'], 'ربات')}\n"
-                f"📛 نام: {bot.get('first_name', 'نامشخص')}\n"
-                f"👤 یوزرنیم: @{bot.get('username', 'نامشخص')}\n"
-                f"🆔 شناسه: {bot.get('telegram_id', 'نامشخص')}\n"
-                f"⏰ زمان ساخت: {bot.get('created_at', 'نامشخص')}\n"
-                f"✅ وضعیت: {bot.get('status', 'نامشخص')}"
-                for bot in user_bots
+            # ساخت دکمه‌های مدیریت برای هر ربات
+            keyboard = []
+            for bot in user_bots:
+                bot_name = bot.get('first_name', 'ربات')
+                bot_username = bot.get('username', 'نامشخص')
+                # نمایش نام و username — بدون token_encrypted
+                button_text = f"🤖 {bot_name} (@{bot_username})"
+                keyboard.append([
+                    InlineKeyboardButton(
+                        text=button_text,
+                        callback_data=f"manage_bot_{bot['bot_id']}"
+                    )
+                ])
+            
+            # دکمه بازگشت
+            keyboard.append([
+                InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_bot_management")
             ])
             
-            keyboard = [
-                [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_bot_management")]
-            ]
             reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
             
             text = f"""
@@ -380,7 +386,7 @@ async def callback_my_bots(callback: CallbackQuery, bot_service: BotService):
 
 تعداد ربات‌ها: {len(user_bots)} عدد
 
-{bots_list}
+برای مدیریت هر ربات، روی آن کلیک کنید:
             """
         
         await callback.message.edit_text(text, reply_markup=reply_markup)
@@ -432,4 +438,248 @@ async def callback_back_to_main(callback: CallbackQuery):
         reply_markup=get_main_keyboard()
     )
     await callback.answer()
-    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("manage_bot_"))
+async def callback_manage_single_bot(callback: CallbackQuery, bot_service: BotService):
+    """نمایش پنل مدیریت یک ربات خاص"""
+    try:
+        # Parse کردن bot_id از callback.data
+        bot_id = int(callback.data.replace("manage_bot_", ""))
+        owner_id = callback.from_user.id
+        
+        # تأیید مالکیت و دریافت اطلاعات از طریق bot_service
+        bot_info = await bot_service.get_bot_info(bot_id, owner_id)
+        
+        # نمایش اطلاعات ربات
+        bot_name = bot_info.get('first_name', 'نامشخص')
+        bot_username = bot_info.get('username', 'نامشخص')
+        bot_type_key = bot_info.get('bot_type', 'unknown')
+        bot_type_name = BOT_TYPES.get(bot_type_key, 'ربات')
+        bot_status = bot_info.get('status', 'نامشخص')
+        created_at = bot_info.get('created_at', 'نامشخص')
+        
+        # تعیین ایموجی وضعیت
+        status_emoji = "✅" if bot_status == 'active' else "⏸"
+        status_text = "فعال" if bot_status == 'active' else "غیرفعال"
+        
+        # تعیین دکمه toggle
+        if bot_status == 'active':
+            toggle_button_text = "⏸ توقف ربات"
+        else:
+            toggle_button_text = "▶️ فعال‌سازی ربات"
+        
+        # ساخت کیبورد مدیریت
+        keyboard = [
+            [InlineKeyboardButton(
+                text=toggle_button_text,
+                callback_data=f"toggle_bot_{bot_id}"
+            )],
+            [InlineKeyboardButton(
+                text="🗑 حذف ربات",
+                callback_data=f"confirm_delete_{bot_id}"
+            )],
+            [InlineKeyboardButton(
+                text="🔙 بازگشت به لیست",
+                callback_data="my_bots"
+            )]
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        
+        text = f"""
+🤖 مدیریت ربات
+
+📛 نام: {bot_name}
+👤 یوزرنیم: @{bot_username}
+🔖 نوع: {bot_type_name}
+📅 تاریخ ساخت: {created_at}
+{status_emoji} وضعیت: {status_text}
+
+برای مدیریت ربات، از دکمه‌های زیر استفاده کنید:
+        """
+        
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+        await callback.answer()
+    
+    except ValueError as e:
+        # ربات یافت نشد یا متعلق به کاربر نیست
+        logger.warning(f"⚠️ تلاش برای دسترسی به ربات غیرمجاز: {e}")
+        await callback.answer("❌ ربات یافت نشد یا شما مجاز به مدیریت آن نیستید", show_alert=True)
+    
+    except Exception as e:
+        # خطای غیرمنتظره
+        logger.error(f"❌ خطا در نمایش پنل مدیریت ربات: {e}", exc_info=True)
+        await callback.answer("❌ خطا در بارگذاری اطلاعات ربات", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("confirm_delete_"))
+async def callback_confirm_delete_bot(callback: CallbackQuery):
+    """نمایش پیام تأیید حذف ربات"""
+    try:
+        # Parse کردن bot_id
+        bot_id = int(callback.data.replace("confirm_delete_", ""))
+        
+        # ساخت کیبورد تأیید
+        keyboard = [
+            [InlineKeyboardButton(
+                text="✅ بله، حذف شود",
+                callback_data=f"delete_bot_{bot_id}"
+            )],
+            [InlineKeyboardButton(
+                text="❌ انصراف",
+                callback_data=f"manage_bot_{bot_id}"
+            )]
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        
+        text = """
+⚠️ تأیید حذف ربات
+
+آیا مطمئن هستید که می‌خواهید این ربات را حذف کنید؟
+
+🚨 این عمل غیرقابل بازگشت است!
+
+تمام اطلاعات مربوط به این ربات از سیستم حذف خواهد شد.
+        """
+        
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+        await callback.answer()
+    
+    except Exception as e:
+        logger.error(f"❌ خطا در نمایش پیام تأیید حذف: {e}", exc_info=True)
+        await callback.answer("❌ خطا در پردازش درخواست", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("delete_bot_"))
+async def callback_delete_bot(callback: CallbackQuery, bot_service: BotService):
+    """حذف ربات بعد از تأیید"""
+    try:
+        # Parse کردن bot_id
+        bot_id = int(callback.data.replace("delete_bot_", ""))
+        owner_id = callback.from_user.id
+        
+        # حذف ربات از طریق bot_service
+        await bot_service.delete_bot(bot_id, owner_id)
+        
+        # نمایش پیام موفقیت
+        keyboard = [
+            [InlineKeyboardButton(
+                text="📋 ربات‌های من",
+                callback_data="my_bots"
+            )],
+            [InlineKeyboardButton(
+                text="🏠 منوی اصلی",
+                callback_data="back_to_main"
+            )]
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        
+        text = """
+✅ ربات با موفقیت حذف شد
+
+ربات شما از سیستم حذف شد.
+
+برای مشاهده ربات‌های باقیمانده، از دکمه "📋 ربات‌های من" استفاده کنید.
+        """
+        
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+        await callback.answer("✅ ربات حذف شد")
+        
+        logger.info(f"✅ ربات {bot_id} توسط کاربر {owner_id} حذف شد")
+    
+    except ValueError as e:
+        # ربات یافت نشد یا متعلق به کاربر نیست
+        logger.warning(f"⚠️ تلاش برای حذف ربات غیرمجاز: {e}")
+        await callback.answer("❌ ربات یافت نشد یا شما مجاز به حذف آن نیستید", show_alert=True)
+    
+    except Exception as e:
+        # خطای غیرمنتظره
+        logger.error(f"❌ خطا در حذف ربات: {e}", exc_info=True)
+        await callback.answer("❌ خطا در حذف ربات", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("toggle_bot_"))
+async def callback_toggle_bot_status(callback: CallbackQuery, bot_service: BotService):
+    """تغییر وضعیت ربات (فعال/غیرفعال)"""
+    try:
+        # Parse کردن bot_id
+        bot_id = int(callback.data.replace("toggle_bot_", ""))
+        owner_id = callback.from_user.id
+        
+        # دریافت وضعیت فعلی
+        bot_info = await bot_service.get_bot_info(bot_id, owner_id)
+        current_status = bot_info.get('status', 'inactive')
+        
+        # Toggle وضعیت
+        new_status = 'inactive' if current_status == 'active' else 'active'
+        
+        # به‌روزرسانی وضعیت
+        await bot_service.update_bot_status(bot_id, owner_id, new_status)
+        
+        logger.info(
+            f"✅ وضعیت ربات {bot_id} توسط کاربر {owner_id} "
+            f"از {current_status} به {new_status} تغییر یافت"
+        )
+        
+        # دریافت اطلاعات به‌روز شده
+        bot_info_updated = await bot_service.get_bot_info(bot_id, owner_id)
+        
+        # نمایش UI به‌روز شده
+        bot_name = bot_info_updated.get('first_name', 'نامشخص')
+        bot_username = bot_info_updated.get('username', 'نامشخص')
+        bot_type_key = bot_info_updated.get('bot_type', 'unknown')
+        bot_type_name = BOT_TYPES.get(bot_type_key, 'ربات')
+        bot_status = bot_info_updated.get('status', 'نامشخص')
+        created_at = bot_info_updated.get('created_at', 'نامشخص')
+        
+        # تعیین ایموجی وضعیت
+        status_emoji = "✅" if bot_status == 'active' else "⏸"
+        status_text = "فعال" if bot_status == 'active' else "غیرفعال"
+        
+        # تعیین دکمه toggle
+        if bot_status == 'active':
+            toggle_button_text = "⏸ توقف ربات"
+        else:
+            toggle_button_text = "▶️ فعال‌سازی ربات"
+        
+        # ساخت کیبورد مدیریت
+        keyboard = [
+            [InlineKeyboardButton(
+                text=toggle_button_text,
+                callback_data=f"toggle_bot_{bot_id}"
+            )],
+            [InlineKeyboardButton(
+                text="🗑 حذف ربات",
+                callback_data=f"confirm_delete_{bot_id}"
+            )],
+            [InlineKeyboardButton(
+                text="🔙 بازگشت به لیست",
+                callback_data="my_bots"
+            )]
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        
+        text = f"""
+🤖 مدیریت ربات
+
+📛 نام: {bot_name}
+👤 یوزرنیم: @{bot_username}
+🔖 نوع: {bot_type_name}
+📅 تاریخ ساخت: {created_at}
+{status_emoji} وضعیت: {status_text}
+
+برای مدیریت ربات، از دکمه‌های زیر استفاده کنید:
+        """
+        
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+        await callback.answer(f"✅ وضعیت ربات به '{status_text}' تغییر یافت")
+    
+    except ValueError as e:
+        # ربات یافت نشد یا متعلق به کاربر نیست
+        logger.warning(f"⚠️ تلاش برای تغییر وضعیت ربات غیرمجاز: {e}")
+        await callback.answer("❌ ربات یافت نشد یا شما مجاز به تغییر وضعیت آن نیستید", show_alert=True)
+    
+    except Exception as e:
+        # خطای غیرمنتظره
+        logger.error(f"❌ خطا در تغییر وضعیت ربات: {e}", exc_info=True)
+        await callback.answer("❌ خطا در تغییر وضعیت ربات", show_alert=True)

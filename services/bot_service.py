@@ -219,6 +219,71 @@ class BotService:
             )
         
         return True
+    
+    async def get_bot_info(
+        self,
+        bot_id: int,
+        owner_id: int
+    ) -> Dict[str, Any]:
+        """
+        دریافت اطلاعات یک ربات خاص (با بررسی ownership)
+        
+        Args:
+            bot_id: ID رکورد در دیتابیس
+            owner_id: ID کاربر تلگرام (برای تأیید مالکیت)
+            
+        Returns:
+            Dict شامل اطلاعات ربات (بدون token)
+            
+        Raises:
+            ValueError: اگر ربات یافت نشود یا متعلق به کاربر نباشد
+            
+        Security:
+        - بررسی owner_id برای جلوگیری از دسترسی غیرمجاز
+        - token_encrypted برگردانده نمی‌شود
+        """
+        bot_info = await self.repository.get_bot_by_id(bot_id, owner_id)
+        
+        if not bot_info:
+            raise ValueError(
+                f"ربات با ID {bot_id} یافت نشد یا متعلق به این کاربر نیست"
+            )
+        
+        return bot_info
+    
+    async def update_bot_status(
+        self,
+        bot_id: int,
+        owner_id: int,
+        new_status: str
+    ) -> bool:
+        """
+        به‌روزرسانی وضعیت ربات (با بررسی ownership)
+        
+        Args:
+            bot_id: ID رکورد در دیتابیس
+            owner_id: ID کاربر تلگرام (برای تأیید مالکیت)
+            new_status: وضعیت جدید (active/inactive)
+            
+        Returns:
+            True اگر به‌روزرسانی موفق باشد
+            
+        Raises:
+            ValueError: اگر ربات یافت نشود یا متعلق به کاربر نباشد
+            
+        Security:
+        - بررسی owner_id برای جلوگیری از تغییر غیرمجاز
+        """
+        success = await self.repository.update_bot_status(
+            bot_id, owner_id, new_status
+        )
+        
+        if not success:
+            raise ValueError(
+                f"ربات با ID {bot_id} یافت نشد یا متعلق به این کاربر نیست"
+            )
+        
+        return True
 
 
 async def validate_bot_token(token: str) -> Dict[str, Any]:

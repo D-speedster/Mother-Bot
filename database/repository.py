@@ -210,6 +210,64 @@ class BotRepository:
             logger.error(f"❌ خطا در دریافت لیست ربات‌ها: {e}", exc_info=True)
             raise
     
+    async def get_bot_by_id(
+        self,
+        bot_id: int,
+        owner_id: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        دریافت اطلاعات یک ربات خاص (با بررسی ownership)
+        
+        Args:
+            bot_id: ID رکورد در دیتابیس
+            owner_id: ID کاربر تلگرام (برای تأیید مالکیت)
+            
+        Returns:
+            Dict شامل اطلاعات ربات (بدون token) یا None اگر یافت نشود
+            
+        Security:
+        - بررسی owner_id برای جلوگیری از دسترسی غیرمجاز
+        - token_encrypted برگردانده نمی‌شود
+        """
+        try:
+            # ⚠️ SECURITY: token_encrypted را در SELECT نمی‌آوریم
+            cursor = await self._conn.execute(
+                """
+                SELECT 
+                    id, owner_id, bot_telegram_id, username, first_name,
+                    bot_type, status, created_at, updated_at
+                FROM bots
+                WHERE id = ? AND owner_id = ?
+                """,
+                (bot_id, owner_id)
+            )
+            
+            row = await cursor.fetchone()
+            
+            if row:
+                return {
+                    'id': row[0],
+                    'owner_id': row[1],
+                    'bot_telegram_id': row[2],
+                    'username': row[3],
+                    'first_name': row[4],
+                    'bot_type': row[5],
+                    'status': row[6],
+                    'created_at': row[7],
+                    'updated_at': row[8]
+                    # ⚠️ SECURITY: token_encrypted اینجا نیست
+                }
+            else:
+                logger.warning(
+                    f"⚠️ ربات یافت نشد یا متعلق به این کاربر نیست: "
+                    f"bot_id={bot_id}, owner={owner_id}"
+                )
+                return None
+        
+        except Exception as e:
+            logger.error(f"❌ خطا در دریافت اطلاعات ربات: {e}", exc_info=True)
+            raise
+    
     async def get_bot_token_encrypted(
         self,
         bot_id: int,
@@ -257,36 +315,52 @@ class BotRepository:
             logger.error(f"❌ خطا در دریافت توکن ربات: {e}", exc_info=True)
             raise
     
-    async def update_bot_status(self, bot_id: int, status: str) -> bool:
+    async def update_bot_status(
+        self,
+        bot_id: int,
+        owner_id: int,
+        status: str
+    ) -> bool:
         """
-        به‌روزرسانی وضعیت ربات
+        به‌روزرسانی وضعیت ربات (با بررسی ownership)
         
         Args:
             bot_id: ID رکورد در دیتابیس
+            owner_id: ID کاربر تلگرام (برای تأیید مالکیت)
             status: وضعیت جدید
             
         Returns:
-            True اگر به‌روزرسانی موفق باشد، False اگر رکورد یافت نشود
+            True اگر به‌روزرسانی موفق باشد، False اگر رکورد یافت نشود یا متعلق به کاربر نباشد
+            
+        Security:
+        - بررسی owner_id برای جلوگیری از تغییر وضعیت ربات دیگران
         """
         try:
             now = datetime.utcnow().isoformat()
             
+            # ⚠️ SECURITY: بررسی owner_id برای جلوگیری از unauthorized update
             cursor = await self._conn.execute(
                 """
                 UPDATE bots
                 SET status = ?, updated_at = ?
-                WHERE id = ?
+                WHERE id = ? AND owner_id = ?
                 """,
-                (status, now, bot_id)
+                (status, now, bot_id, owner_id)
             )
             
             await self._conn.commit()
             
             if cursor.rowcount > 0:
-                logger.info(f"✅ وضعیت ربات به‌روز شد: ID={bot_id}, status={status}")
+                logger.info(
+                    f"✅ وضعیت ربات به‌روز شد: bot_id={bot_id}, "
+                    f"owner={owner_id}, status={status}"
+                )
                 return True
             else:
-                logger.warning(f"⚠️ ربات با ID={bot_id} یافت نشد")
+                logger.warning(
+                    f"⚠️ ربات یافت نشد یا متعلق به این کاربر نیست: "
+                    f"bot_id={bot_id}, owner={owner_id}"
+                )
                 return False
         
         except Exception as e:
