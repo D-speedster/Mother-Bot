@@ -275,13 +275,18 @@ async def validate_bot_token(token: str) -> Dict[str, Any]:
     
     except TelegramAPIError as e:
         # خطاهای عمومی API به BotValidationError تبدیل می‌شوند
-        logger.error(f"خطای API در اعتبارسنجی: {e}")
-        raise BotValidationError(str(e))
+        # ⚠️ SECURITY: پیام خطا را sanitize می‌کنیم
+        logger.error(f"خطای API در اعتبارسنجی: {type(e).__name__}")
+        raise BotValidationError("خطا در ارتباط با سرور تلگرام")
     
     except Exception as e:
         # خطاهای غیرمنتظره
-        logger.error(f"خطای غیرمنتظره در اعتبارسنجی توکن: {e}", exc_info=True)
-        raise BotValidationError(f"خطای غیرمنتظره: {str(e)}")
+        # ⚠️ SECURITY: از str(e) استفاده نمی‌کنیم
+        logger.error(
+            f"خطای غیرمنتظره در اعتبارسنجی توکن: {type(e).__name__}",
+            exc_info=True
+        )
+        raise BotValidationError("خطای غیرمنتظره در اعتبارسنجی")
 
 
 def _validate_token_format(token: str) -> None:

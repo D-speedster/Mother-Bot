@@ -213,15 +213,14 @@ async def handle_token_input(message: Message, state: FSMContext, bot_service):
         )
     
     except TokenAlreadyRegisteredError as e:
-        # ربات قبلاً ثبت شده است
+        # ⚠️ SECURITY: از str(e) استفاده نمی‌کنیم - Information Leakage
+        # کاربر نباید بداند این ربات متعلق به چه کسی است
         await processing_msg.delete()
         
-        error_message = f"""
-⚠️ این ربات قبلاً ثبت شده است!
+        error_message = """
+⚠️ این ربات قبلاً در سیستم ثبت شده است.
 
-{str(e)}
-
-این ربات قبلاً در سیستم ما موجود است و نمی‌توان مجدداً آن را ثبت کرد.
+این ربات قبلاً توسط کاربری دیگر ثبت شده و نمی‌توان مجدداً آن را ثبت کرد.
 
 💡 اگر صاحب این ربات هستید، می‌توانید از قسمت "📋 ربات‌های من" آن را مدیریت کنید.
         """
@@ -234,16 +233,18 @@ async def handle_token_input(message: Message, state: FSMContext, bot_service):
         
         await message.answer(error_message, reply_markup=reply_markup)
         await state.clear()
-        logger.warning(f"⚠️ تلاش برای ثبت مجدد ربات توسط کاربر {user_id}: {str(e)}")
+        # ⚠️ SECURITY: لاگ داخلی می‌تواند جزئیات داشته باشد، اما به کاربر نشان نمی‌دهیم
+        logger.warning(
+            f"⚠️ تلاش برای ثبت مجدد ربات توسط کاربر {user_id}: {type(e).__name__}"
+        )
     
     except InvalidTokenError as e:
         # توکن نامعتبر (401)
+        # ⚠️ SECURITY: str(e) می‌تواند حاوی اطلاعات حساس باشد
         await processing_msg.delete()
         
-        error_message = f"""
+        error_message = """
 ❌ توکن نامعتبر است!
-
-خطا: {str(e)}
 
 لطفاً:
 1️⃣ مطمئن شوید توکن را به درستی از @BotFather کپی کردید
@@ -261,10 +262,15 @@ async def handle_token_input(message: Message, state: FSMContext, bot_service):
         # محدودیت تعداد درخواست (429)
         await processing_msg.delete()
         
+        # ⚠️ می‌توانیم retry_after را نمایش دهیم (خطری ندارد)
+        retry_text = ""
+        if hasattr(e, 'retry_after') and e.retry_after:
+            retry_text = f"\n\n⏱️ لطفاً {e.retry_after} ثانیه صبر کنید."
+        
         error_message = f"""
 ⏱️ محدودیت تعداد درخواست
 
-{str(e)}
+تعداد درخواست‌های شما بیش از حد مجاز است.{retry_text}
 
 لطفاً کمی صبر کنید و سپس دوباره توکن را ارسال کنید.
         """
@@ -272,14 +278,12 @@ async def handle_token_input(message: Message, state: FSMContext, bot_service):
         await message.answer(error_message)
         logger.warning(f"Rate limit برای کاربر {user_id}")
     
-    except NetworkTimeoutError as e:
+    except NetworkTimeoutError:
         # زمان‌توقف شبکه
         await processing_msg.delete()
         
-        error_message = f"""
+        error_message = """
 ⏰ زمان اتصال تمام شد
-
-{str(e)}
 
 لطفاً:
 • اتصال اینترنت خود را بررسی کنید
@@ -295,17 +299,18 @@ async def handle_token_input(message: Message, state: FSMContext, bot_service):
         # سایر خطاهای اعتبارسنجی
         await processing_msg.delete()
         
-        error_message = f"""
+        # ⚠️ SECURITY: پیام خطا را محدود می‌کنیم
+        error_message = """
 ❌ خطا در اعتبارسنجی توکن
 
-خطا: {str(e)}
+توکن وارد شده معتبر نیست.
 
 🔄 لطفاً دوباره توکن صحیح را ارسال کنید.
 برای لغو، روی دکمه "❌ لغو" کلیک کنید.
         """
         
         await message.answer(error_message)
-        logger.warning(f"خطای اعتبارسنجی از کاربر {user_id}: {str(e)}")
+        logger.warning(f"خطای اعتبارسنجی از کاربر {user_id}: {type(e).__name__}")
     
     except Exception as e:
         # خطای غیرمنتظره
