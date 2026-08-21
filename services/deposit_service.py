@@ -179,24 +179,33 @@ class DepositService:
             )
             raise
     
-    async def approve_request(
+    async def approve_request_atomic(
         self,
         request_id: int,
         admin_note: Optional[str] = None
-    ) -> bool:
+    ) -> Dict[str, any]:
         """
-        تأیید درخواست شارژ
+        تأیید درخواست شارژ به صورت اتمیک
+        
+        این متد تغییر وضعیت را انجام می‌دهد و اطلاعات لازم برای شارژ کیف پول را برمی‌گرداند.
+        فقط یک ادمین می‌تواند این درخواست را تأیید کند (با شرط WHERE status = 'pending')
         
         Args:
             request_id: ID درخواست
             admin_note: یادداشت ادمین (اختیاری)
             
         Returns:
-            True در صورت موفقیت
+            dict با کلیدهای:
+            - success: True/False
+            - user_id: شناسه کاربر (در صورت موفقیت)
+            - amount: مبلغ (در صورت موفقیت)
+            - message: پیام توضیحی
         """
         try:
             now = datetime.utcnow().isoformat()
             
+            # ⚠️ CRITICAL: استفاده از UPDATE با WHERE status = 'pending'
+            # فقط اگر وضعیت pending باشد تغییر می‌کند
             cursor = await self._conn.execute(
                 """
                 UPDATE deposit_requests
@@ -208,16 +217,49 @@ class DepositService:
             
             await self._conn.commit()
             
-            if cursor.rowcount > 0:
-                logger.info(
-                    f"✅ درخواست {request_id} تأیید شد"
-                )
-                return True
-            else:
+            # بررسی تعداد ردیف‌های تغییر یافته
+            if cursor.rowcount == 0:
                 logger.warning(
-                    f"⚠️ درخواست {request_id} یافت نشد یا قبلاً پردازش شده"
+                    f"⚠️ درخواست {request_id} قبلاً پردازش شده یا یافت نشد"
                 )
-                return False
+                return {
+                    'success': False,
+                    'message': 'این درخواست قبلاً پردازش شده است'
+                }
+            
+            # دریافت اطلاعات درخواست
+            cursor = await self._conn.execute(
+                """
+                SELECT user_id, amount
+                FROM deposit_requests
+                WHERE id = ?
+                """,
+                (request_id,)
+            )
+            
+            row = await cursor.fetchone()
+            
+            if not row:
+                logger.error(f"❌ خطا: درخواست {request_id} پس از تأیید یافت نشد!")
+                return {
+                    'success': False,
+                    'message': 'خطا در دریافت اطلاعات درخواست'
+                }
+            
+            user_id = row[0]
+            amount = row[1]
+            
+            logger.info(
+                f"✅ درخواست {request_id} تأیید شد - "
+                f"کاربر={user_id}, مبلغ={amount:,}"
+            )
+            
+            return {
+                'success': True,
+                'user_id': user_id,
+                'amount': amount,
+                'message': 'درخواست با موفقیت تأیید شد'
+            }
         
         except Exception as e:
             logger.error(
@@ -226,24 +268,29 @@ class DepositService:
             )
             raise
     
-    async def reject_request(
+    async def reject_request_atomic(
         self,
         request_id: int,
         admin_note: Optional[str] = None
-    ) -> bool:
+    ) -> Dict[str, any]:
         """
-        رد درخواست شارژ
+        رد درخواست شارژ به صورت اتمیک
         
         Args:
             request_id: ID درخواست
             admin_note: دلیل رد (اختیاری)
             
         Returns:
-            True در صورت موفقیت
+            dict با کلیدهای:
+            - success: True/False
+            - user_id: شناسه کاربر (در صورت موفقیت)
+            - amount: مبلغ (در صورت موفقیت)
+            - message: پیام توضیحی
         """
         try:
             now = datetime.utcnow().isoformat()
             
+            # ⚠️ CRITICAL: استفاده از UPDATE با WHERE status = 'pending'
             cursor = await self._conn.execute(
                 """
                 UPDATE deposit_requests
@@ -255,16 +302,49 @@ class DepositService:
             
             await self._conn.commit()
             
-            if cursor.rowcount > 0:
-                logger.info(
-                    f"✅ درخواست {request_id} رد شد"
-                )
-                return True
-            else:
+            # بررسی تعداد ردیف‌های تغییر یافته
+            if cursor.rowcount == 0:
                 logger.warning(
-                    f"⚠️ درخواست {request_id} یافت نشد یا قبلاً پردازش شده"
+                    f"⚠️ درخواست {request_id} قبلاً پردازش شده یا یافت نشد"
                 )
-                return False
+                return {
+                    'success': False,
+                    'message': 'این درخواست قبلاً پردازش شده است'
+                }
+            
+            # دریافت اطلاعات درخواست
+            cursor = await self._conn.execute(
+                """
+                SELECT user_id, amount
+                FROM deposit_requests
+                WHERE id = ?
+                """,
+                (request_id,)
+            )
+            
+            row = await cursor.fetchone()
+            
+            if not row:
+                logger.error(f"❌ خطا: درخواست {request_id} پس از رد یافت نشد!")
+                return {
+                    'success': False,
+                    'message': 'خطا در دریافت اطلاعات درخواست'
+                }
+            
+            user_id = row[0]
+            amount = row[1]
+            
+            logger.info(
+                f"✅ درخواست {request_id} رد شد - "
+                f"کاربر={user_id}, مبلغ={amount:,}"
+            )
+            
+            return {
+                'success': True,
+                'user_id': user_id,
+                'amount': amount,
+                'message': 'درخواست با موفقیت رد شد'
+            }
         
         except Exception as e:
             logger.error(

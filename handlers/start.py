@@ -8,19 +8,32 @@ from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKe
 router = Router()
 
 
-def get_main_keyboard() -> ReplyKeyboardMarkup:
-    """ساخت کیبورد اصلی"""
+async def get_main_keyboard(admin_service=None, user_id: int = None) -> ReplyKeyboardMarkup:
+    """
+    ساخت کیبورد اصلی
+    
+    Args:
+        admin_service: سرویس ادمین برای چک کردن دسترسی
+        user_id: شناسه کاربر
+    """
     keyboard = [
         [KeyboardButton(text="🤖 ساخت ربات")],  # دکمه تک‌سطری
         [KeyboardButton(text="💳 کیف پول من"), KeyboardButton(text="👤 حساب کاربری")],
         [KeyboardButton(text="💰 کسب درآمد"), KeyboardButton(text="🤖 مدیریت ربات‌ها")],
         [KeyboardButton(text="💬 پشتیبانی"), KeyboardButton(text="📋 قوانین")]
     ]
+    
+    # اگر admin_service موجود باشد و کاربر ادمین باشد، دکمه پنل ادمین اضافه شود
+    if admin_service and user_id:
+        is_admin = await admin_service.is_admin(user_id)
+        if is_admin:
+            keyboard.append([KeyboardButton(text="⚙️ پنل ادمین")])
+    
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, admin_service=None):
     """پیام خوش‌آمدگویی و نمایش منوی اصلی"""
     user = message.from_user
     welcome_message = f"""
@@ -29,11 +42,12 @@ async def cmd_start(message: Message):
 به ربات دستیار من خوش آمدید.
 لطفاً از منوی زیر گزینه مورد نظر خود را انتخاب کنید:
     """
-    await message.answer(welcome_message, reply_markup=get_main_keyboard())
+    keyboard = await get_main_keyboard(admin_service, user.id)
+    await message.answer(welcome_message, reply_markup=keyboard)
 
 
 @router.message(F.text == "👤 حساب کاربری")
-async def handle_account(message: Message):
+async def handle_account(message: Message, admin_service=None):
     """نمایش اطلاعات حساب کاربری"""
     user = message.from_user
     text = f"""
@@ -50,11 +64,12 @@ async def handle_account(message: Message):
 
 برای فعال‌سازی اشتراک، از منوی خرید اقدام کنید.
     """
-    await message.answer(text, reply_markup=get_main_keyboard())
+    keyboard = await get_main_keyboard(admin_service, user.id)
+    await message.answer(text, reply_markup=keyboard)
 
 
 @router.message(F.text == "💰 کسب درآمد")
-async def handle_earn_money(message: Message):
+async def handle_earn_money(message: Message, admin_service=None):
     """نمایش برنامه کسب درآمد"""
     user = message.from_user
     referral_link = f"https://t.me/YOUR_BOT_USERNAME?start={user.id}"
@@ -77,7 +92,8 @@ async def handle_earn_money(message: Message):
 
 این لینک را با دوستان خود به اشتراک بگذارید!
     """
-    await message.answer(text, reply_markup=get_main_keyboard())
+    keyboard = await get_main_keyboard(admin_service, user.id)
+    await message.answer(text, reply_markup=keyboard)
 
 
 @router.message(F.text == "🤖 مدیریت ربات‌ها")
@@ -100,7 +116,7 @@ async def handle_bot_management(message: Message):
 
 
 @router.message(F.text == "💬 پشتیبانی")
-async def handle_support(message: Message):
+async def handle_support(message: Message, admin_service=None):
     """نمایش اطلاعات پشتیبانی"""
     text = """
 💬 پشتیبانی
@@ -124,11 +140,12 @@ async def handle_support(message: Message):
 
 برای سوالات خود پیام دهید.
     """
-    await message.answer(text, reply_markup=get_main_keyboard())
+    keyboard = await get_main_keyboard(admin_service, message.from_user.id)
+    await message.answer(text, reply_markup=keyboard)
 
 
 @router.message(F.text == "📋 قوانین")
-async def handle_rules(message: Message):
+async def handle_rules(message: Message, admin_service=None):
     """نمایش قوانین"""
     text = """
 📋 قوانین و مقررات
@@ -142,4 +159,5 @@ async def handle_rules(message: Message):
 
 با استفاده از خدمات ما، قوانین را می‌پذیرید.
     """
-    await message.answer(text, reply_markup=get_main_keyboard())
+    keyboard = await get_main_keyboard(admin_service, message.from_user.id)
+    await message.answer(text, reply_markup=keyboard)

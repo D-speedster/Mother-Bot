@@ -164,6 +164,15 @@ class Database:
             ON deposit_requests(created_at DESC)
         """)
         
+        # جدول مدیران (ادمین‌ها)
+        await self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS admins (
+                user_id INTEGER PRIMARY KEY,
+                added_by INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        
         await self._connection.commit()
         logger.info("✅ Schema پایگاه داده آماده است")
         

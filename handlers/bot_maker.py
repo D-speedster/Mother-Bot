@@ -177,15 +177,45 @@ async def handle_token_input(
         processing_msg = await message.answer("⏳ در حال بررسی موجودی و ثبت توکن...")
     
     try:
-        # ۱. بررسی موجودی کاربر (فقط برای غیرادمین‌ها)
+        # ۱. دریافت اطلاعات از state
+        data = await state.get_data()
+        bot_type = data.get('creating_bot_type', 'unknown')
+        selected_bot = BOT_TYPES.get(bot_type, "ربات")
+        
+        # ۲. ثبت ربات (اعتبارسنجی + رمزنگاری + ذخیره در دیتابیس)
+        result = await bot_service.register_bot(
+            owner_id=user_id,
+            token=token,
+            bot_type=bot_type
+        )
+        
+        bot_id = result['bot_id']
+        
+        # ۳. کسر هزینه از کیف پول (فقط برای غیرادمین‌ها)
+        # ⚠️ CRITICAL: deduct_credit به صورت اتمیک موجودی را چک و کسر می‌کند
+        # جلوگیری از Double Spending در درخواست‌های همزمان
         if not is_admin:
-            user_balance = await wallet_service.get_balance(user_id)
-            
-            if user_balance < BOT_CREATION_COST:
-                # موجودی کافی نیست
-                await processing_msg.delete()
+            try:
+                await wallet_service.deduct_credit(
+                    user_id=user_id,
+                    amount=BOT_CREATION_COST,
+                    description=f"ساخت ربات {selected_bot} (@{result['username']})"
+                )
+            except ValueError as e:
+                # موجودی کافی نبود (احتمالاً توسط درخواست همزمان دیگر کسر شده)
+                # باید ربات را از دیتابیس حذف کنیم
+                logger.warning(
+                    f"⚠️ موجودی ناکافی بعد از ثبت ربات {bot_id} - حذف ربات"
+                )
                 
-                shortage = BOT_CREATION_COST - user_balance
+                try:
+                    await bot_service.delete_bot(bot_id, user_id)
+                    logger.info(f"✅ ربات {bot_id} با موفقیت حذف شد")
+                except:
+                    logger.error(f"❌ خطا در حذف ربات {bot_id} بعد از کسر ناموفق")
+                
+                # نمایش پیام خطا به کاربر
+                await processing_msg.delete()
                 
                 keyboard = [
                     [InlineKeyboardButton(
@@ -199,48 +229,12 @@ async def handle_token_input(
                 ]
                 reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
                 
-                error_message = f"""
-⚠️ موجودی کافی نیست!
-
-💰 موجودی فعلی شما: {user_balance:,} تومان
-💵 هزینه ساخت ربات: {BOT_CREATION_COST:,} تومان
-📉 کمبود: {shortage:,} تومان
-
-لطفاً ابتدا کیف پول خود را شارژ کنید.
-                """
-                
-                await message.answer(error_message, reply_markup=reply_markup)
-                await state.clear()
-                
-                logger.warning(
-                    f"⚠️ موجودی ناکافی برای کاربر {user_id}: "
-                    f"موجودی={user_balance:,}, نیاز={BOT_CREATION_COST:,}"
+                await message.answer(
+                    f"⚠️ {str(e)}\n\nلطفاً ابتدا کیف پول خود را شارژ کنید.",
+                    reply_markup=reply_markup
                 )
+                await state.clear()
                 return
-        else:
-            logger.info(f"🔑 کاربر ادمین {user_id} در حال ساخت ربات (بدون پرداخت)")
-        
-        # ۲. دریافت اطلاعات از state
-        data = await state.get_data()
-        bot_type = data.get('creating_bot_type', 'unknown')
-        selected_bot = BOT_TYPES.get(bot_type, "ربات")
-        
-        # ۳. ثبت ربات (اعتبارسنجی + رمزنگاری + ذخیره در دیتابیس)
-        result = await bot_service.register_bot(
-            owner_id=user_id,
-            token=token,
-            bot_type=bot_type
-        )
-        
-        bot_id = result['bot_id']
-        
-        # ۴. کسر هزینه از کیف پول (فقط برای غیرادمین‌ها)
-        if not is_admin:
-            await wallet_service.deduct_credit(
-                user_id=user_id,
-                amount=BOT_CREATION_COST,
-                description=f"ساخت ربات {selected_bot} (@{result['username']})"
-            )
             
             # دریافت موجودی جدید
             new_balance = await wallet_service.get_balance(user_id)
@@ -248,7 +242,7 @@ async def handle_token_input(
         else:
             balance_text = "\n\n👑 ساخت ربات برای ادمین: رایگان"
         
-        # ۵. روشن کردن ربات بلافاصله
+        # ۴. روشن کردن ربات بلافاصله
         bot_started = await bot_runner.start_bot(bot_id, user_id)
         
         if bot_started:

@@ -121,7 +121,7 @@ class WalletService:
                 await self._conn.execute(
                     """
                     INSERT INTO transactions (user_id, amount, type, description, created_at)
-                    VALUES (?, ?, 'deposit', ?, ?)
+                    VALUES (?, ?, 'credit', ?, ?)
                     """,
                     (user_id, amount, description, now)
                 )
@@ -157,6 +157,9 @@ class WalletService:
         """
         کسر موجودی و ثبت تراکنش برداشت (در صورت کافی بودن موجودی)
         
+        ⚠️ CRITICAL: این متد به صورت اتمیک موجودی را چک و کسر می‌کند
+        برای جلوگیری از Double Spending در شرایط همزمانی (Concurrency)
+        
         Args:
             user_id: ID کاربر تلگرام
             amount: مبلغ برداشتی (تومان)
@@ -172,23 +175,40 @@ class WalletService:
             raise ValueError("مبلغ باید بزرگتر از صفر باشد")
         
         try:
-            # شروع Transaction برای Transaction Safety
+            # ⚠️ CRITICAL: BEGIN IMMEDIATE برای قفل کردن دیتابیس
+            # جلوگیری از Race Condition در چک و کسر موجودی
             await self._conn.execute("BEGIN IMMEDIATE")
             
             try:
                 # اطمینان از وجود کاربر
                 await self._ensure_user_exists(user_id)
                 
-                # بررسی موجودی
-                cursor = await self._conn.execute(
-                    "SELECT balance FROM users WHERE user_id = ?",
-                    (user_id,)
-                )
-                row = await cursor.fetchone()
-                current_balance = row[0] if row else 0
+                # ⚠️ CRITICAL: استفاده از UPDATE با WHERE balance >= amount
+                # فقط اگر موجودی کافی باشد، کسر می‌شود
+                now = datetime.utcnow().isoformat()
                 
-                if current_balance < amount:
+                cursor = await self._conn.execute(
+                    """
+                    UPDATE users
+                    SET balance = balance - ?, updated_at = ?
+                    WHERE user_id = ? AND balance >= ?
+                    """,
+                    (amount, now, user_id, amount)
+                )
+                
+                # بررسی تعداد ردیف‌های تغییر یافته
+                if cursor.rowcount == 0:
+                    # موجودی کافی نبود
                     await self._conn.rollback()
+                    
+                    # دریافت موجودی فعلی برای نمایش
+                    cursor = await self._conn.execute(
+                        "SELECT balance FROM users WHERE user_id = ?",
+                        (user_id,)
+                    )
+                    row = await cursor.fetchone()
+                    current_balance = row[0] if row else 0
+                    
                     logger.warning(
                         f"⚠️ موجودی ناکافی برای کاربر {user_id}: "
                         f"موجودی فعلی {current_balance:,} تومان, "
@@ -198,23 +218,11 @@ class WalletService:
                         f"موجودی شما کافی نیست. موجودی فعلی: {current_balance:,} تومان"
                     )
                 
-                now = datetime.utcnow().isoformat()
-                
-                # کسر موجودی
-                await self._conn.execute(
-                    """
-                    UPDATE users
-                    SET balance = balance - ?, updated_at = ?
-                    WHERE user_id = ?
-                    """,
-                    (amount, now, user_id)
-                )
-                
                 # ثبت تراکنش
                 await self._conn.execute(
                     """
                     INSERT INTO transactions (user_id, amount, type, description, created_at)
-                    VALUES (?, ?, 'withdraw', ?, ?)
+                    VALUES (?, ?, 'debit', ?, ?)
                     """,
                     (user_id, amount, description, now)
                 )
@@ -235,10 +243,11 @@ class WalletService:
                 raise e
         
         except Exception as e:
-            logger.error(
-                f"❌ خطا در برداشت از کیف پول کاربر {user_id}: {e}",
-                exc_info=True
-            )
+            if not isinstance(e, ValueError):
+                logger.error(
+                    f"❌ خطا در برداشت از کیف پول کاربر {user_id}: {e}",
+                    exc_info=True
+                )
             raise
     
     async def get_user_transactions(

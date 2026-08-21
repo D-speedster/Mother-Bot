@@ -535,7 +535,12 @@ async def callback_approve_deposit(
     deposit_service: DepositService,
     wallet_service: WalletService
 ):
-    """تأیید درخواست شارژ توسط ادمین"""
+    """
+    تأیید درخواست شارژ توسط ادمین
+    
+    ⚠️ CRITICAL: این handler از approve_request_atomic استفاده می‌کند
+    برای جلوگیری از Double Approval (تایید همزمان توسط دو ادمین)
+    """
     admin_id = callback.from_user.id
     
     # بررسی دسترسی ادمین
@@ -547,32 +552,54 @@ async def callback_approve_deposit(
         # استخراج request_id
         request_id = int(callback.data.replace("approve_deposit_", ""))
         
-        # دریافت اطلاعات درخواست
-        request = await deposit_service.get_request_by_id(request_id)
+        # ⚠️ CRITICAL: تأیید اتمیک درخواست
+        # این متد فقط اگر status = 'pending' باشد، تأیید می‌کند
+        result = await deposit_service.approve_request_atomic(
+            request_id,
+            admin_note=f"تأیید شده توسط ادمین {admin_id}"
+        )
         
-        if not request:
-            await callback.answer("❌ درخواست یافت نشد", show_alert=True)
-            return
-        
-        if request['status'] != 'pending':
+        if not result['success']:
+            # درخواست قبلاً پردازش شده
             await callback.answer(
-                f"⚠️ این درخواست قبلاً پردازش شده است (وضعیت: {request['status']})",
+                f"⚠️ {result['message']}",
                 show_alert=True
             )
             return
         
-        user_id = request['user_id']
-        amount = request['amount']
-        
-        # تأیید درخواست
-        await deposit_service.approve_request(request_id, admin_note=f"تأیید شده توسط ادمین {admin_id}")
+        user_id = result['user_id']
+        amount = result['amount']
         
         # شارژ کیف پول کاربر
-        await wallet_service.add_credit(
-            user_id=user_id,
-            amount=amount,
-            description=f"شارژ کیف پول - درخواست #{request_id}"
-        )
+        try:
+            await wallet_service.add_credit(
+                user_id=user_id,
+                amount=amount,
+                description=f"شارژ کیف پول - درخواست #{request_id}"
+            )
+        except Exception as e:
+            # ⚠️ CRITICAL: اگر شارژ کیف پول ناموفق بود، باید درخواست را به pending برگردانیم
+            logger.error(
+                f"❌ خطای حیاتی: شارژ کیف پول ناموفق برای درخواست {request_id}: {e}",
+                exc_info=True
+            )
+            
+            # تلاش برای برگرداندن وضعیت
+            try:
+                await deposit_service._conn.execute(
+                    "UPDATE deposit_requests SET status = 'pending' WHERE id = ?",
+                    (request_id,)
+                )
+                await deposit_service._conn.commit()
+                logger.info(f"✅ وضعیت درخواست {request_id} به pending برگشت")
+            except:
+                logger.error(f"❌ خطای دوبل: نتوانستیم وضعیت را برگردانیم!")
+            
+            await callback.answer(
+                "❌ خطا در شارژ کیف پول. لطفاً با پشتیبانی تماس بگیرید",
+                show_alert=True
+            )
+            return
         
         # اعلان به کاربر
         try:
@@ -621,7 +648,12 @@ async def callback_reject_deposit(
     callback: CallbackQuery,
     deposit_service: DepositService
 ):
-    """رد درخواست شارژ توسط ادمین"""
+    """
+    رد درخواست شارژ توسط ادمین
+    
+    ⚠️ CRITICAL: این handler از reject_request_atomic استفاده می‌کند
+    برای جلوگیری از Double Processing
+    """
     admin_id = callback.from_user.id
     
     # بررسی دسترسی ادمین
@@ -633,25 +665,22 @@ async def callback_reject_deposit(
         # استخراج request_id
         request_id = int(callback.data.replace("reject_deposit_", ""))
         
-        # دریافت اطلاعات درخواست
-        request = await deposit_service.get_request_by_id(request_id)
+        # ⚠️ CRITICAL: رد اتمیک درخواست
+        result = await deposit_service.reject_request_atomic(
+            request_id,
+            admin_note=f"رد شده توسط ادمین {admin_id}"
+        )
         
-        if not request:
-            await callback.answer("❌ درخواست یافت نشد", show_alert=True)
-            return
-        
-        if request['status'] != 'pending':
+        if not result['success']:
+            # درخواست قبلاً پردازش شده
             await callback.answer(
-                f"⚠️ این درخواست قبلاً پردازش شده است (وضعیت: {request['status']})",
+                f"⚠️ {result['message']}",
                 show_alert=True
             )
             return
         
-        user_id = request['user_id']
-        amount = request['amount']
-        
-        # رد درخواست
-        await deposit_service.reject_request(request_id, admin_note=f"رد شده توسط ادمین {admin_id}")
+        user_id = result['user_id']
+        amount = result['amount']
         
         # اعلان به کاربر
         try:

@@ -7,11 +7,12 @@ import re
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from config import BOT_TOKEN, DATABASE_PATH
-from handlers import start_router, bot_maker_router, wallet_router
+from config import BOT_TOKEN, DATABASE_PATH, ADMIN_USER_ID
+from handlers import start_router, bot_maker_router, wallet_router, admin_router
 from database import Database
 from database.repository import BotRepository
 from services import TokenEncryptionService, BotService, WalletService, DepositService
+from services.admin_service import AdminService
 from services.runner import BotRunner
 
 
@@ -100,6 +101,7 @@ async def main():
     bot_service = BotService(repository, encryption_service)
     wallet_service = WalletService(database.connection)
     deposit_service = DepositService(database.connection)
+    admin_service = AdminService(database.connection, ADMIN_USER_ID)
     bot_runner = BotRunner(
         bot_service=bot_service,
         encryption_service=encryption_service
@@ -115,6 +117,7 @@ async def main():
         'bot_service': bot_service,
         'wallet_service': wallet_service,
         'deposit_service': deposit_service,
+        'admin_service': admin_service,
         'bot_runner': bot_runner,
         'repository': repository,
         'encryption': encryption_service
@@ -124,13 +127,17 @@ async def main():
     dp.include_router(start_router)
     dp.include_router(bot_maker_router)
     dp.include_router(wallet_router)
+    dp.include_router(admin_router)
     
-    # تعریف startup handler برای راه‌اندازی خودکار ربات‌های فعال
+    # تعریف startup handler برای راه‌اندازی خودکار ربات‌های فعال و تضمین ادمین اصلی
     @dp.startup()
     async def on_startup():
         """
-        Handler اجرا شده در startup - راه‌اندازی خودکار ربات‌های فرزند
+        Handler اجرا شده در startup - راه‌اندازی خودکار ربات‌های فرزند و تضمین ادمین اصلی
         """
+        # تضمین وجود ادمین اصلی در جدول admins
+        await admin_service.ensure_main_admin_exists()
+        
         logger.info("🔄 شروع راه‌اندازی خودکار ربات‌های فعال...")
         
         try:
