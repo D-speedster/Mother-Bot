@@ -37,7 +37,7 @@ def _get_router_for_bot_type(bot_type: str) -> Optional[Router]:
     - هر handler module باید تابع get_router() داشته باشد که Router جدید برمی‌گرداند
     """
     BOT_TYPE_HANDLERS = {
-        "ai_image": "handlers.child_bots.downloader",
+        "ai_image": "handlers.child_bots.ai_image",
         "movie_downloader": "handlers.child_bots.movie",
         "social_downloader": "handlers.child_bots.downloader",
         "vpn_seller": "handlers.child_bots.downloader",
