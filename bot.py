@@ -8,10 +8,11 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import BOT_TOKEN, DATABASE_PATH
-from handlers import start_router, bot_maker_router
+from handlers import start_router, bot_maker_router, wallet_router
 from database import Database
 from database.repository import BotRepository
-from services import TokenEncryptionService, BotService
+from services import TokenEncryptionService, BotService, WalletService, DepositService
+from services.runner import BotRunner
 
 
 class TokenMaskingFilter(logging.Filter):
@@ -97,6 +98,12 @@ async def main():
     encryption_service = TokenEncryptionService()
     repository = BotRepository(database.connection)
     bot_service = BotService(repository, encryption_service)
+    wallet_service = WalletService(database.connection)
+    deposit_service = DepositService(database.connection)
+    bot_runner = BotRunner(
+        bot_service=bot_service,
+        encryption_service=encryption_service
+    )
     
     # ساخت Bot و Dispatcher
     bot = Bot(token=BOT_TOKEN)
@@ -106,6 +113,9 @@ async def main():
     # اضافه کردن سرویس‌ها به middleware data (برای دسترسی در handlers)
     dp.workflow_data.update({
         'bot_service': bot_service,
+        'wallet_service': wallet_service,
+        'deposit_service': deposit_service,
+        'bot_runner': bot_runner,
         'repository': repository,
         'encryption': encryption_service
     })
@@ -113,6 +123,34 @@ async def main():
     # ثبت routerها
     dp.include_router(start_router)
     dp.include_router(bot_maker_router)
+    dp.include_router(wallet_router)
+    
+    # تعریف startup handler برای راه‌اندازی خودکار ربات‌های فعال
+    @dp.startup()
+    async def on_startup():
+        """
+        Handler اجرا شده در startup - راه‌اندازی خودکار ربات‌های فرزند
+        """
+        logger.info("🔄 شروع راه‌اندازی خودکار ربات‌های فعال...")
+        
+        try:
+            # راه‌اندازی تمام ربات‌های فعال
+            started_count = await bot_runner.start_all_bots_system_wide(repository)
+            
+            if started_count > 0:
+                logger.info(
+                    f"✅ {started_count} ربات فرزند با موفقیت در استارت‌آپ "
+                    f"لود و روشن شدند"
+                )
+            else:
+                logger.info("ℹ️ هیچ ربات فعالی برای راه‌اندازی یافت نشد")
+        
+        except Exception as e:
+            # ⚠️ CRITICAL: خطا را log می‌کنیم اما ربات مادر را crash نمی‌کنیم
+            logger.error(
+                f"❌ خطا در راه‌اندازی خودکار ربات‌های فرزند: {type(e).__name__}",
+                exc_info=True
+            )
     
     logger.info("🤖 ربات در حال اجرا است...")
     logger.info(f"📊 پایگاه داده: {DATABASE_PATH}")

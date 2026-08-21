@@ -429,3 +429,56 @@ class BotRepository:
         except Exception as e:
             logger.error(f"❌ خطا در شمارش ربات‌ها: {e}", exc_info=True)
             raise
+    
+    async def get_all_active_bots(self) -> List[Dict[str, Any]]:
+        """
+        دریافت تمام ربات‌های فعال (status='active') برای استارت‌آپ سیستم
+        
+        این متد برای راه‌اندازی خودکار ربات‌های فرزند هنگام ری‌استارت ربات مادر استفاده می‌شود.
+        
+        Returns:
+            لیست Dict‌های حاوی اطلاعات لازم برای شروع ربات‌ها:
+            - id: شناسه رکورد در دیتابیس
+            - owner_id: ID کاربر تلگرام
+            - bot_type: نوع ربات
+            - token_encrypted: توکن رمزشده
+            - username: نام کاربری ربات
+            - first_name: نام ربات
+            
+        Security:
+        - ⚠️ این متد token_encrypted برمی‌گرداند (برخلاف متدهای عمومی)
+        - فقط برای استفاده داخلی در startup
+        - توکن‌ها توسط BotRunner دیکریپت خواهند شد
+        """
+        try:
+            cursor = await self._conn.execute(
+                """
+                SELECT 
+                    id, owner_id, bot_type, token_encrypted, username, first_name
+                FROM bots
+                WHERE status = 'active'
+                ORDER BY created_at ASC
+                """
+            )
+            
+            rows = await cursor.fetchall()
+            
+            bots = [
+                {
+                    'id': row[0],
+                    'owner_id': row[1],
+                    'bot_type': row[2],
+                    'token_encrypted': row[3],
+                    'username': row[4],
+                    'first_name': row[5]
+                }
+                for row in rows
+            ]
+            
+            logger.info(f"✅ دریافت {len(bots)} ربات فعال برای استارت‌آپ سیستم")
+            
+            return bots
+        
+        except Exception as e:
+            logger.error(f"❌ خطا در دریافت ربات‌های فعال: {e}", exc_info=True)
+            raise

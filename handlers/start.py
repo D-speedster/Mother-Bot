@@ -12,9 +12,9 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     """ساخت کیبورد اصلی"""
     keyboard = [
         [KeyboardButton(text="🤖 ساخت ربات")],  # دکمه تک‌سطری
-        [KeyboardButton(text="👤 حساب کاربری"), KeyboardButton(text="💰 کسب درآمد")],
-        [KeyboardButton(text="🤖 مدیریت ربات‌ها"), KeyboardButton(text="💬 پشتیبانی")],
-        [KeyboardButton(text="📋 قوانین")]
+        [KeyboardButton(text="💳 کیف پول من"), KeyboardButton(text="👤 حساب کاربری")],
+        [KeyboardButton(text="💰 کسب درآمد"), KeyboardButton(text="🤖 مدیریت ربات‌ها")],
+        [KeyboardButton(text="💬 پشتیبانی"), KeyboardButton(text="📋 قوانین")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 

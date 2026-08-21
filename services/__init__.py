@@ -4,6 +4,8 @@
 from .bot_service import validate_bot_token, BotService
 from .telegram_client import TelegramClient
 from .encryption import TokenEncryptionService
+from .wallet_service import WalletService
+from .deposit_service import DepositService
 from .exceptions import (
     TelegramAPIError,
     InvalidTokenError,
@@ -18,6 +20,8 @@ __all__ = [
     'BotService',
     'TelegramClient',
     'TokenEncryptionService',
+    'WalletService',
+    'DepositService',
     'TelegramAPIError',
     'InvalidTokenError',
     'TelegramRateLimitError',

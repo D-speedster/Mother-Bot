@@ -33,10 +33,19 @@ DATABASE_PATH = os.getenv('DATABASE_PATH', 'mother_bot.db')
 
 # انواع ربات‌های قابل ساخت
 BOT_TYPES = {
-    "shop": "🛒 ربات فروشگاهی",
-    "downloader": "📥 ربات دانلودر",
-    "support": "🎫 ربات پشتیبانی و تیکت",
-    "broadcast": "📢 ربات ارسال همگانی",
-    "tools": "⚙️ ربات ابزار و خدمات",
-    "affiliate": "🔗 ربات همکاری در فروش"
+    "ai_image": "🎨 ربات هوش مصنوعی و ویرایش عکس",
+    "movie_downloader": "🎬 ربات دانلود فیلم و سریال",
+    "social_downloader": "📱 ربات دانلود از یوتیوب و اینستاگرام",
+    "vpn_seller": "🔐 ربات فروش فیلترشکن"
 }
+
+# هزینه ساخت ربات (تومان)
+BOT_CREATION_COST = int(os.getenv('BOT_CREATION_COST', '50000'))
+
+# لیست آیدی ادمین‌های اصلی سیستم (ساخت ربات برای آنها رایگان است)
+ADMIN_USER_IDS = [79049016]  # می‌توانید آیدی‌های بیشتری اضافه کنید
+
+# اطلاعات کارت بانکی برای واریز (کارت به کارت)
+BANK_CARD_NUMBER = os.getenv('BANK_CARD_NUMBER', '6037-9977-1234-5678')
+BANK_CARD_HOLDER = os.getenv('BANK_CARD_HOLDER', 'علی احمدی')
+BANK_NAME = os.getenv('BANK_NAME', 'بانک ملی ایران')

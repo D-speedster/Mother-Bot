@@ -98,6 +98,72 @@ class Database:
             ON bots(status)
         """)
         
+        # جدول کاربران (برای مدیریت کیف پول)
+        await self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                balance INTEGER NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # جدول تراکنش‌ها
+        await self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                amount INTEGER NOT NULL,
+                type TEXT NOT NULL,
+                description TEXT NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            )
+        """)
+        
+        # ایجاد Index برای تراکنش‌ها
+        await self._connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_transactions_user_id 
+            ON transactions(user_id)
+        """)
+        
+        await self._connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_transactions_created_at 
+            ON transactions(created_at DESC)
+        """)
+        
+        # جدول درخواست‌های شارژ (فیش‌های واریزی)
+        await self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS deposit_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                amount INTEGER NOT NULL,
+                receipt_photo_id TEXT,
+                tracking_code TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                admin_note TEXT,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            )
+        """)
+        
+        # ایجاد Index برای درخواست‌های شارژ
+        await self._connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_deposit_requests_user_id 
+            ON deposit_requests(user_id)
+        """)
+        
+        await self._connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_deposit_requests_status 
+            ON deposit_requests(status)
+        """)
+        
+        await self._connection.execute("""
+            CREATE INDEX IF NOT EXISTS idx_deposit_requests_created_at 
+            ON deposit_requests(created_at DESC)
+        """)
+        
         await self._connection.commit()
         logger.info("✅ Schema پایگاه داده آماده است")
         

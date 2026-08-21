@@ -8,9 +8,10 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 import logging
 
-from config import BOT_TYPES
+from config import BOT_TYPES, BOT_CREATION_COST, ADMIN_USER_IDS
 from services import (
     BotService,
+    WalletService,
     validate_bot_token,
     BotValidationError,
     InvalidTokenError,
@@ -32,12 +33,10 @@ class BotCreation(StatesGroup):
 def get_bot_types_keyboard() -> InlineKeyboardMarkup:
     """ساخت کیبورد انواع ربات"""
     keyboard = [
-        [InlineKeyboardButton(text="🛒 ربات فروشگاهی", callback_data="bot_type_shop")],
-        [InlineKeyboardButton(text="📥 ربات دانلودر", callback_data="bot_type_downloader")],
-        [InlineKeyboardButton(text="🎫 ربات پشتیبانی و تیکت", callback_data="bot_type_support")],
-        [InlineKeyboardButton(text="📢 ربات ارسال همگانی (Broadcast)", callback_data="bot_type_broadcast")],
-        [InlineKeyboardButton(text="⚙️ ربات ابزار و خدمات", callback_data="bot_type_tools")],
-        [InlineKeyboardButton(text="🔗 ربات همکاری در فروش (Affiliate)", callback_data="bot_type_affiliate")],
+        [InlineKeyboardButton(text="🎨 ربات هوش مصنوعی و ویرایش عکس", callback_data="bot_type_ai_image")],
+        [InlineKeyboardButton(text="🎬 ربات دانلود فیلم و سریال", callback_data="bot_type_movie_downloader")],
+        [InlineKeyboardButton(text="📱 ربات دانلود از یوتیوب و اینستاگرام", callback_data="bot_type_social_downloader")],
+        [InlineKeyboardButton(text="🔐 ربات فروش فیلترشکن", callback_data="bot_type_vpn_seller")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_bot_management")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -160,27 +159,104 @@ async def callback_cancel_creation(callback: CallbackQuery, state: FSMContext):
 async def handle_token_input(
     message: Message,
     state: FSMContext,
-    bot_service: BotService
+    bot_service: BotService,
+    wallet_service: WalletService,
+    bot_runner  # BotRunner برای روشن کردن ربات بعد از ساخت
 ):
     """دریافت و اعتبارسنجی واقعی توکن با API تلگرام و ذخیره در دیتابیس"""
     token = message.text.strip()
     user_id = message.from_user.id
     
+    # بررسی اینکه آیا کاربر ادمین است
+    is_admin = user_id in ADMIN_USER_IDS
+    
     # نمایش پیام در حال بررسی
-    processing_msg = await message.answer("⏳ در حال بررسی و ثبت توکن...")
+    if is_admin:
+        processing_msg = await message.answer("⏳ در حال بررسی و ثبت توکن... (ادمین - رایگان)")
+    else:
+        processing_msg = await message.answer("⏳ در حال بررسی موجودی و ثبت توکن...")
     
     try:
-        # دریافت اطلاعات از state
+        # ۱. بررسی موجودی کاربر (فقط برای غیرادمین‌ها)
+        if not is_admin:
+            user_balance = await wallet_service.get_balance(user_id)
+            
+            if user_balance < BOT_CREATION_COST:
+                # موجودی کافی نیست
+                await processing_msg.delete()
+                
+                shortage = BOT_CREATION_COST - user_balance
+                
+                keyboard = [
+                    [InlineKeyboardButton(
+                        text="💳 شارژ کیف پول",
+                        callback_data="wallet_charge"
+                    )],
+                    [InlineKeyboardButton(
+                        text="🔙 بازگشت",
+                        callback_data="back_to_bot_management"
+                    )]
+                ]
+                reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+                
+                error_message = f"""
+⚠️ موجودی کافی نیست!
+
+💰 موجودی فعلی شما: {user_balance:,} تومان
+💵 هزینه ساخت ربات: {BOT_CREATION_COST:,} تومان
+📉 کمبود: {shortage:,} تومان
+
+لطفاً ابتدا کیف پول خود را شارژ کنید.
+                """
+                
+                await message.answer(error_message, reply_markup=reply_markup)
+                await state.clear()
+                
+                logger.warning(
+                    f"⚠️ موجودی ناکافی برای کاربر {user_id}: "
+                    f"موجودی={user_balance:,}, نیاز={BOT_CREATION_COST:,}"
+                )
+                return
+        else:
+            logger.info(f"🔑 کاربر ادمین {user_id} در حال ساخت ربات (بدون پرداخت)")
+        
+        # ۲. دریافت اطلاعات از state
         data = await state.get_data()
         bot_type = data.get('creating_bot_type', 'unknown')
         selected_bot = BOT_TYPES.get(bot_type, "ربات")
         
-        # ثبت ربات (اعتبارسنجی + رمزنگاری + ذخیره در دیتابیس)
+        # ۳. ثبت ربات (اعتبارسنجی + رمزنگاری + ذخیره در دیتابیس)
         result = await bot_service.register_bot(
             owner_id=user_id,
             token=token,
             bot_type=bot_type
         )
+        
+        bot_id = result['bot_id']
+        
+        # ۴. کسر هزینه از کیف پول (فقط برای غیرادمین‌ها)
+        if not is_admin:
+            await wallet_service.deduct_credit(
+                user_id=user_id,
+                amount=BOT_CREATION_COST,
+                description=f"ساخت ربات {selected_bot} (@{result['username']})"
+            )
+            
+            # دریافت موجودی جدید
+            new_balance = await wallet_service.get_balance(user_id)
+            balance_text = f"\n\n💰 هزینه ساخت: {BOT_CREATION_COST:,} تومان\n💳 موجودی باقیمانده: {new_balance:,} تومان"
+        else:
+            balance_text = "\n\n👑 ساخت ربات برای ادمین: رایگان"
+        
+        # ۵. روشن کردن ربات بلافاصله
+        bot_started = await bot_runner.start_bot(bot_id, user_id)
+        
+        if bot_started:
+            bot_status_text = "🟢 ربات شما الان آنلاین است و در حال اجراست!"
+            logger.info(f"✅ ربات {bot_id} بلافاصله پس از ساخت روشن شد")
+        else:
+            bot_status_text = "⚠️ ربات ثبت شد اما خطایی در روشن کردن آن رخ داد. لطفاً دستی آن را فعال کنید."
+            logger.warning(f"⚠️ ربات {bot_id} ثبت شد اما روشن نشد")
         
         # پاک کردن state
         await state.clear()
@@ -191,6 +267,7 @@ async def handle_token_input(
         # ساخت دکمه‌های بازگشت
         keyboard = [
             [InlineKeyboardButton(text="🤖 مدیریت ربات‌ها", callback_data="back_to_bot_management")],
+            [InlineKeyboardButton(text="💳 کیف پول من", callback_data="my_wallet")],
             [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="back_to_main")]
         ]
         reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -202,7 +279,9 @@ async def handle_token_input(
 🤖 نام ربات: {result['first_name']}
 👤 یوزرنیم: @{result['username']}
 🆔 شناسه: {result['telegram_id']}
-🔐 وضعیت: ✅ فعال و آماده استفاده
+🔐 وضعیت: ✅ فعال و آماده استفاده{balance_text}
+
+{bot_status_text}
 
 🎉 تبریک! ربات شما با موفقیت ثبت و راه‌اندازی شد.
 
@@ -212,10 +291,18 @@ async def handle_token_input(
         """
         
         await message.answer(success_message, reply_markup=reply_markup)
-        logger.info(
-            f"✅ ربات جدید ثبت شد: @{result['username']} "
-            f"(ID={result['bot_id']}) توسط کاربر {user_id}"
-        )
+        
+        if is_admin:
+            logger.info(
+                f"✅ ربات جدید ثبت شد (ادمین - رایگان): @{result['username']} "
+                f"(ID={bot_id}) توسط ادمین {user_id}"
+            )
+        else:
+            logger.info(
+                f"✅ ربات جدید ثبت شد: @{result['username']} "
+                f"(ID={bot_id}) توسط کاربر {user_id}, "
+                f"هزینه={BOT_CREATION_COST:,}, موجودی جدید={new_balance:,}"
+            )
     
     except TokenAlreadyRegisteredError as e:
         # ⚠️ SECURITY: از str(e) استفاده نمی‌کنیم - Information Leakage
@@ -319,6 +406,21 @@ async def handle_token_input(
         
         await message.answer(error_message)
         logger.warning(f"خطای اعتبارسنجی از کاربر {user_id}: {type(e).__name__}")
+    
+    except ValueError as e:
+        # خطای کسر موجودی (نباید اتفاق بیفتد چون قبلاً چک کردیم)
+        await processing_msg.delete()
+        
+        error_message = f"""
+❌ خطا در پردازش تراکنش
+
+{str(e)}
+
+لطفاً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.
+        """
+        
+        await message.answer(error_message)
+        logger.error(f"خطای ValueError در ثبت ربات: {e}", exc_info=True)
     
     except Exception as e:
         # خطای غیرمنتظره
@@ -551,14 +653,19 @@ async def callback_confirm_delete_bot(callback: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("delete_bot_"))
-async def callback_delete_bot(callback: CallbackQuery, bot_service: BotService):
+async def callback_delete_bot(callback: CallbackQuery, bot_service: BotService, bot_runner):
     """حذف ربات بعد از تأیید"""
     try:
         # Parse کردن bot_id
         bot_id = int(callback.data.replace("delete_bot_", ""))
         owner_id = callback.from_user.id
         
-        # حذف ربات از طریق bot_service
+        # ۱. توقف ربات در حال اجرا (اگر فعال باشد)
+        stopped = await bot_runner.stop_bot(bot_id)
+        if stopped:
+            logger.info(f"🛑 ربات {bot_id} متوقف شد قبل از حذف")
+        
+        # ۲. حذف ربات از دیتابیس
         await bot_service.delete_bot(bot_id, owner_id)
         
         # نمایش پیام موفقیت
@@ -577,7 +684,7 @@ async def callback_delete_bot(callback: CallbackQuery, bot_service: BotService):
         text = """
 ✅ ربات با موفقیت حذف شد
 
-ربات شما از سیستم حذف شد.
+ربات شما از سیستم حذف شد و پولینگ آن متوقف شد.
 
 برای مشاهده ربات‌های باقیمانده، از دکمه "📋 ربات‌های من" استفاده کنید.
         """
@@ -599,7 +706,7 @@ async def callback_delete_bot(callback: CallbackQuery, bot_service: BotService):
 
 
 @router.callback_query(F.data.startswith("toggle_bot_"))
-async def callback_toggle_bot_status(callback: CallbackQuery, bot_service: BotService):
+async def callback_toggle_bot_status(callback: CallbackQuery, bot_service: BotService, bot_runner):
     """تغییر وضعیت ربات (فعال/غیرفعال)"""
     try:
         # Parse کردن bot_id
@@ -613,8 +720,28 @@ async def callback_toggle_bot_status(callback: CallbackQuery, bot_service: BotSe
         # Toggle وضعیت
         new_status = 'inactive' if current_status == 'active' else 'active'
         
-        # به‌روزرسانی وضعیت
+        # به‌روزرسانی وضعیت در دیتابیس
         await bot_service.update_bot_status(bot_id, owner_id, new_status)
+        
+        # مدیریت ربات در BotRunner
+        if new_status == 'active':
+            # فعال‌سازی: شروع ربات
+            started = await bot_runner.start_bot(bot_id, owner_id)
+            if started:
+                logger.info(f"✅ ربات {bot_id} روشن شد")
+                runtime_status = "🟢 ربات الان آنلاین است"
+            else:
+                logger.warning(f"⚠️ ربات {bot_id} در دیتابیس فعال شد اما شروع نشد")
+                runtime_status = "⚠️ ربات فعال شد اما خطایی در روشن کردن رخ داد"
+        else:
+            # غیرفعال‌سازی: توقف ربات
+            stopped = await bot_runner.stop_bot(bot_id)
+            if stopped:
+                logger.info(f"🛑 ربات {bot_id} متوقف شد")
+                runtime_status = "⏸ ربات متوقف شد"
+            else:
+                logger.info(f"ℹ️ ربات {bot_id} در حال اجرا نبود")
+                runtime_status = "ℹ️ ربات غیرفعال شد"
         
         logger.info(
             f"✅ وضعیت ربات {bot_id} توسط کاربر {owner_id} "
@@ -667,6 +794,8 @@ async def callback_toggle_bot_status(callback: CallbackQuery, bot_service: BotSe
 🔖 نوع: {bot_type_name}
 📅 تاریخ ساخت: {created_at}
 {status_emoji} وضعیت: {status_text}
+
+{runtime_status}
 
 برای مدیریت ربات، از دکمه‌های زیر استفاده کنید:
         """
