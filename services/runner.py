@@ -38,7 +38,7 @@ def _get_router_for_bot_type(bot_type: str) -> Optional[Router]:
     """
     BOT_TYPE_HANDLERS = {
         "ai_image": "handlers.child_bots.downloader",
-        "movie_downloader": "handlers.child_bots.downloader",
+        "movie_downloader": "handlers.child_bots.movie",
         "social_downloader": "handlers.child_bots.downloader",
         "vpn_seller": "handlers.child_bots.downloader",
         # Legacy support

@@ -8,6 +8,9 @@ from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
+# Import مشترک از start.py
+from handlers.start import get_main_keyboard
+
 logger = logging.getLogger(__name__)
 
 # Router برای handlers مدیریتی
@@ -36,17 +39,6 @@ def get_admin_management_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="➕ افزودن ادمین"), KeyboardButton(text="➖ حذف ادمین")],
         [KeyboardButton(text="📋 لیست ادمین‌ها")],
         [KeyboardButton(text="🔙 بازگشت به پنل ادمین")]
-    ]
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
-
-
-def get_main_keyboard() -> ReplyKeyboardMarkup:
-    """کیبورد اصلی (کپی از handlers.start)"""
-    keyboard = [
-        [KeyboardButton(text="🤖 ساخت ربات")],
-        [KeyboardButton(text="💳 کیف پول من"), KeyboardButton(text="👤 حساب کاربری")],
-        [KeyboardButton(text="💰 کسب درآمد"), KeyboardButton(text="🤖 مدیریت ربات‌ها")],
-        [KeyboardButton(text="💬 پشتیبانی"), KeyboardButton(text="📋 قوانین")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -304,21 +296,97 @@ async def handle_remove_admin_process(message: Message, state: FSMContext, admin
 
 
 @admin_router.message(F.text == "📋 فیش‌های در انتظار")
-async def handle_pending_receipts(message: Message, admin_service):
+async def handle_pending_receipts(message: Message, admin_service, deposit_service):
     """
-    هدایت به پنل فیش‌های در انتظار
-    (این handler فقط redirect می‌کند - پیاده‌سازی واقعی در wallet.py است)
+    نمایش فیش‌های در انتظار تأیید
     """
     # چک کردن ادمین بودن
     is_admin = await admin_service.is_admin(message.from_user.id)
     if not is_admin:
         return
     
-    await message.answer(
-        "📋 بررسی فیش‌های در انتظار\n\n"
-        "لطفاً از دستور /review_deposits استفاده کنید",
-        reply_markup=get_admin_keyboard()
-    )
+    try:
+        # دریافت فیش‌های pending
+        pending_requests = await deposit_service.get_pending_requests(limit=20)
+        
+        if not pending_requests:
+            await message.answer(
+                "✅ هیچ فیش در انتظاری وجود ندارد\n\n"
+                "تمام درخواست‌ها پردازش شده‌اند.",
+                reply_markup=get_admin_keyboard()
+            )
+            return
+        
+        # نمایش لیست فیش‌ها
+        text = f"📋 فیش‌های در انتظار تأیید\n\n"
+        text += f"تعداد: {len(pending_requests)} فیش\n\n"
+        
+        for req in pending_requests[:5]:  # نمایش 5 فیش اول
+            req_id = req['id']
+            user_id = req['user_id']
+            amount = req['amount']
+            created_at = req['created_at']
+            
+            text += f"🆔 درخواست #{req_id}\n"
+            text += f"👤 کاربر: {user_id}\n"
+            text += f"💰 مبلغ: {amount:,} تومان\n"
+            text += f"📅 تاریخ: {created_at[:19]}\n"
+            
+            # لینک به فیش برای بررسی
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        text=f"✅ تأیید #{req_id}",
+                        callback_data=f"approve_deposit_{req_id}"
+                    ),
+                    InlineKeyboardButton(
+                        text=f"❌ رد #{req_id}",
+                        callback_data=f"reject_deposit_{req_id}"
+                    )
+                ]
+            ]
+            
+            # اگر عکس فیش وجود دارد، ارسال با عکس
+            if req.get('receipt_photo_id'):
+                await message.bot.send_photo(
+                    chat_id=message.from_user.id,
+                    photo=req['receipt_photo_id'],
+                    caption=text,
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+                )
+            else:
+                # اگر فقط کد پیگیری است
+                tracking = req.get('tracking_code', 'ندارد')
+                text += f"🔢 کد پیگیری: {tracking}\n\n"
+                
+                await message.answer(
+                    text,
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+                )
+            
+            text = ""  # Reset برای فیش بعدی
+        
+        # پیام نهایی
+        if len(pending_requests) > 5:
+            await message.answer(
+                f"⚠️ {len(pending_requests) - 5} فیش دیگر در انتظار است.\n"
+                "برای مشاهده بیشتر، دوباره کلیک کنید.",
+                reply_markup=get_admin_keyboard()
+            )
+        else:
+            await message.answer(
+                "✅ تمام فیش‌های در انتظار نمایش داده شد.",
+                reply_markup=get_admin_keyboard()
+            )
+        
+    except Exception as e:
+        logger.error(f"❌ خطا در نمایش فیش‌های pending: {e}", exc_info=True)
+        await message.answer(
+            "❌ خطا در بارگذاری فیش‌ها",
+            reply_markup=get_admin_keyboard()
+        )
 
 
 @admin_router.message(F.text == "🔙 بازگشت به پنل ادمین")
@@ -353,7 +421,9 @@ async def handle_back_to_main_menu(message: Message, state: FSMContext, admin_se
     # پاک کردن هر state ممکن
     await state.clear()
     
+    # استفاده از تابع مشترک
+    keyboard = await get_main_keyboard(admin_service, message.from_user.id)
     await message.answer(
         "🔙 بازگشت به منوی اصلی",
-        reply_markup=get_main_keyboard()
+        reply_markup=keyboard
     )
