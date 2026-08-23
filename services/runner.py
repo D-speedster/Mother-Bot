@@ -39,7 +39,7 @@ def _get_router_for_bot_type(bot_type: str) -> Optional[Router]:
     BOT_TYPE_HANDLERS = {
         "ai_image": "handlers.child_bots.ai_image",
         "movie_downloader": "handlers.child_bots.movie",
-        "social_downloader": "handlers.child_bots.downloader",
+        "social_downloader": "handlers.child_bots.social_downloader",
         "vpn_seller": "handlers.child_bots.downloader",
         # Legacy support
         "downloader": "handlers.child_bots.downloader",
@@ -57,7 +57,29 @@ def _get_router_for_bot_type(bot_type: str) -> Optional[Router]:
         # ⚠️ FIX: فراخوانی تابع get_router() برای ساخت Router جدید
         # به جای import مستقیم router global
         if hasattr(module, 'get_router'):
-            return module.get_router()
+            router = module.get_router()
+            
+            # ⚠️ AI Image Bot: اضافه کردن Admin Router
+            if bot_type == "ai_image":
+                try:
+                    # Import admin router module
+                    admin_module = importlib.import_module("handlers.child_bots.ai_image_admin")
+                    if hasattr(admin_module, 'get_admin_router'):
+                        admin_router = admin_module.get_admin_router()
+                        # ساخت Parent Router برای ترکیب User + Admin
+                        parent_router = Router(name="ai_image_combined")
+                        parent_router.include_router(router)
+                        parent_router.include_router(admin_router)
+                        logger.info("✅ Admin Router برای ai_image لود و ترکیب شد")
+                        return parent_router
+                    else:
+                        logger.warning("⚠️ Admin module بدون get_admin_router() — فقط User Router لود شد")
+                except ImportError as admin_err:
+                    logger.warning(f"⚠️ Admin Router برای ai_image لود نشد: {admin_err}")
+                except Exception as admin_err:
+                    logger.error(f"❌ خطا در لود Admin Router: {admin_err}", exc_info=True)
+            
+            return router
         else:
             logger.error(
                 f"❌ ماژول {module_path} تابع get_router() ندارد — "
@@ -202,8 +224,9 @@ class BotRunner:
             )
             
             # ساخت task و ذخیره در dict
+            # ✅ OWNER-BASED AUTH: Pass owner_id to _run_bot_task
             task = asyncio.create_task(
-                self._run_bot_task(bot_id, token, bot_type),
+                self._run_bot_task(bot_id, token, bot_type, owner_id),
                 name=f"bot_{bot_id}"
             )
             
@@ -269,8 +292,9 @@ class BotRunner:
             )
             
             # ساخت task و ذخیره در dict
+            # ✅ OWNER-BASED AUTH: Pass owner_id to _run_bot_task
             task = asyncio.create_task(
-                self._run_bot_task(bot_id, token, bot_type),
+                self._run_bot_task(bot_id, token, bot_type, owner_id),
                 name=f"bot_{bot_id}_system"
             )
             
@@ -351,7 +375,7 @@ class BotRunner:
         
         return True
     
-    async def _run_bot_task(self, bot_id: int, token: str, bot_type: str) -> None:
+    async def _run_bot_task(self, bot_id: int, token: str, bot_type: str, owner_id: int) -> None:
         """
         ⚠️ مهم‌ترین بخش — این تابع داخل asyncio.Task اجرا می‌شود
         
@@ -366,6 +390,7 @@ class BotRunner:
             bot_id: ID رکورد در دیتابیس
             token: توکن ربات (decrypt‌شده)
             bot_type: نوع ربات (downloader, support, ...)
+            owner_id: ID صاحب ربات (برای Owner-Based Authorization)
             
         Security:
         - توکن هیچ‌جا log نمی‌شود
@@ -387,6 +412,15 @@ class BotRunner:
             
             # ساخت Bot و Dispatcher
             bot = Bot(token=token)
+            
+            # ✅ OWNER-BASED AUTH: ذخیره Bot Context در Bot Instance
+            # این context برای Authorization در Admin Panel استفاده می‌شود
+            bot.bot_context = {
+                "bot_id": bot_id,
+                "owner_id": owner_id,
+                "bot_type": bot_type
+            }
+            
             dp = Dispatcher(storage=MemoryStorage())
             
             # ⚠️ FIX: حذف webhook قبلی برای جلوگیری از TelegramConflictError
