@@ -5,6 +5,12 @@ File Transfer Service - دانلود و آپلود فایل‌ها
 ۱. آپلود فایل به هاست و ساخت لینک مستقیم
 ۲. دانلود فایل از لینک مستقیم
 
+Features:
+- تشخیص صحیح نام و پسوند فایل
+- مدیریت redirectها
+- نمایش Progress برای دانلود
+- مدیریت robust خطاها
+
 ⚠️ هیچ وابستگی به aiogram ندارد - Pure Python Service
 """
 import os
@@ -12,8 +18,10 @@ import logging
 import aiohttp
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 from urllib.parse import urlparse
+
+from utils.filename_detector import FilenameDetector
 
 logger = logging.getLogger(__name__)
 
