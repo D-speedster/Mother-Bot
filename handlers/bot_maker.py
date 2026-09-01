@@ -31,14 +31,28 @@ class BotCreation(StatesGroup):
 
 
 def get_bot_types_keyboard() -> InlineKeyboardMarkup:
-    """ساخت کیبورد انواع ربات"""
-    keyboard = [
-        [InlineKeyboardButton(text="🎨 ربات هوش مصنوعی و ویرایش عکس", callback_data="bot_type_ai_image")],
-        [InlineKeyboardButton(text="🎬 ربات دانلود فیلم و سریال", callback_data="bot_type_movie_downloader")],
-        [InlineKeyboardButton(text="📱 ربات دانلود از یوتیوب و اینستاگرام", callback_data="bot_type_social_downloader")],
-        [InlineKeyboardButton(text="🔐 ربات فروش فیلترشکن", callback_data="bot_type_vpn_seller")],
-        [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_bot_management")]
-    ]
+    """
+    ساخت کیبورد انواع ربات به صورت dynamic از BOT_TYPES
+    
+    این keyboard به صورت خودکار از config.BOT_TYPES ساخته می‌شود
+    تا همیشه با لیست ربات‌های موجود همگام باشد
+    """
+    keyboard = []
+    
+    # ساخت دکمه برای هر نوع ربات
+    for bot_type, bot_description in BOT_TYPES.items():
+        keyboard.append([
+            InlineKeyboardButton(
+                text=bot_description,
+                callback_data=f"bot_type_{bot_type}"
+            )
+        ])
+    
+    # دکمه بازگشت
+    keyboard.append([
+        InlineKeyboardButton(text="🔙 بازگشت", callback_data="back_to_bot_management")
+    ])
+    
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 

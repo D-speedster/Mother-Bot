@@ -9,9 +9,12 @@ from contextlib import suppress
 
 from aiogram import Bot, Dispatcher, Router
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 
 from services.bot_service import BotService
 from services.encryption import TokenEncryptionService
+from services.telegram import LocalBotAPIConfig
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,7 @@ def _get_router_for_bot_type(bot_type: str) -> Optional[Router]:
         "ai_image": "handlers.child_bots.ai_image",
         "movie_downloader": "handlers.child_bots.movie",
         "social_downloader": "handlers.child_bots.social_downloader",
+        "file_transfer": "handlers.child_bots.file_transfer",
         "vpn_seller": "handlers.child_bots.downloader",
         # Legacy support
         "downloader": "handlers.child_bots.downloader",
@@ -410,8 +414,23 @@ class BotRunner:
             # ⚠️ SECURITY: توکن را log نمی‌کنیم
             logger.info(f"🤖 ربات {bot_id} (type={bot_type}) در حال راه‌اندازی...")
             
-            # ساخت Bot و Dispatcher
-            bot = Bot(token=token)
+            # بررسی Local Bot API
+            config = LocalBotAPIConfig.from_env()
+            
+            # ساخت Bot با یا بدون Local API
+            if config.enabled:
+                # استفاده از Local Bot API Server
+                session = AiohttpSession(
+                    api=TelegramAPIServer.from_base(f"{config.base_url}:{config.port}")
+                )
+                bot = Bot(token=token, session=session)
+                logger.info(
+                    f"✅ ربات {bot_id} از Local Bot API استفاده می‌کند: {config.api_url}"
+                )
+            else:
+                # استفاده از Standard Telegram API
+                bot = Bot(token=token)
+                logger.debug(f"ℹ️ ربات {bot_id} از Standard Telegram API استفاده می‌کند")
             
             # ✅ OWNER-BASED AUTH: ذخیره Bot Context در Bot Instance
             # این context برای Authorization در Admin Panel استفاده می‌شود
