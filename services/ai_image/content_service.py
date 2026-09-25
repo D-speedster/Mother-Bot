@@ -26,7 +26,7 @@ class FAQ:
     
     def __post_init__(self):
         if not self.created_at:
-            self.created_at = datetime.utcnow().isoformat()
+            self.created_at = datetime.now(timezone.utc).isoformat()
     
     def to_dict(self) -> Dict[str, Any]:
         """تبدیل به dictionary"""
@@ -381,7 +381,7 @@ A: از کیفیت «بالا» استفاده کنید و Prompt دقیق‌ت�
             'user_id': user_id,
             'message_text': message_text,
             'message_data': message_data or {},
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'handled': False
         }
         self._offline_messages.append(offline_msg)

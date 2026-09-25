@@ -166,7 +166,7 @@ class AdminService:
             'system': await self.get_system_statistics(),
             'errors': await self.get_error_statistics()
         }
-        self._last_stats_update = datetime.utcnow()
+        self._last_stats_update = datetime.now(timezone.utc)
         logger.info("Statistics cache refreshed")
     
     def get_cached_statistics(self) -> Optional[Dict[str, Any]]:
@@ -180,7 +180,7 @@ class AdminService:
             return None
         
         # اگر Cache قدیمی‌تر از 5 دقیقه باشد، نامعتبر است
-        if datetime.utcnow() - self._last_stats_update > timedelta(minutes=5):
+        if datetime.now(timezone.utc) - self._last_stats_update > timedelta(minutes=5):
             return None
         
         return self._stats_cache

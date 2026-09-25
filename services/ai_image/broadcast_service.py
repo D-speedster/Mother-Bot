@@ -37,7 +37,7 @@ class BroadcastMessage:
     
     def __post_init__(self):
         if not self.created_at:
-            self.created_at = datetime.utcnow().isoformat()
+            self.created_at = datetime.now(timezone.utc).isoformat()
     
     def to_dict(self) -> Dict[str, Any]:
         """تبدیل به dictionary"""
@@ -151,7 +151,7 @@ class BroadcastService:
         
         # تغییر وضعیت
         broadcast.status = BroadcastStatus.IN_PROGRESS
-        broadcast.started_at = datetime.utcnow().isoformat()
+        broadcast.started_at = datetime.now(timezone.utc).isoformat()
         
         sent_count = 0
         failed_count = 0
@@ -173,7 +173,7 @@ class BroadcastService:
         broadcast.sent_count = sent_count
         broadcast.failed_count = failed_count
         broadcast.status = BroadcastStatus.COMPLETED
-        broadcast.completed_at = datetime.utcnow().isoformat()
+        broadcast.completed_at = datetime.now(timezone.utc).isoformat()
         
         logger.info(
             f"Broadcast completed: {broadcast_id}, "

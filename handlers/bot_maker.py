@@ -225,7 +225,7 @@ async def handle_token_input(
                 try:
                     await bot_service.delete_bot(bot_id, user_id)
                     logger.info(f"✅ ربات {bot_id} با موفقیت حذف شد")
-                except:
+                except Exception as e:
                     logger.error(f"❌ خطا در حذف ربات {bot_id} بعد از کسر ناموفق")
                 
                 # نمایش پیام خطا به کاربر
