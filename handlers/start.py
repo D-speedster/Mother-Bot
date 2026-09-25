@@ -72,7 +72,15 @@ async def handle_account(message: Message, admin_service=None):
 async def handle_earn_money(message: Message, admin_service=None):
     """نمایش برنامه کسب درآمد"""
     user = message.from_user
-    referral_link = f"https://t.me/YOUR_BOT_USERNAME?start={user.id}"
+
+    # دریافت یوزرنیم ربات به‌صورت داینامیک
+    try:
+        bot_info = await message.bot.me()
+        bot_username = bot_info.username or "YOUR_BOT"
+    except Exception:
+        bot_username = "YOUR_BOT"
+
+    referral_link = f"https://t.me/{bot_username}?start={user.id}"
     
     text = f"""
 💰 کسب درآمد

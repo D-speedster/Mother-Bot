@@ -62,7 +62,7 @@ class MockProvider:
             status=GenerationStatus.COMPLETED,
             mock_result=mock_result,
             created_at=request.created_at,
-            completed_at=datetime.utcnow()
+            completed_at=datetime.now(timezone.utc)
         )
         
         logger.info(

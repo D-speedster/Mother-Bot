@@ -180,7 +180,7 @@ class DownloadService:
                 # حذف فایل
                 try:
                     os.remove(file_path)
-                except:
+                except Exception as e:
                     pass
                 
                 raise FileTooLargeError(

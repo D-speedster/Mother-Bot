@@ -34,7 +34,7 @@ class WalletService:
         Args:
             user_id: ID کاربر تلگرام
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         
         await self._conn.execute(
             """
@@ -105,7 +105,7 @@ class WalletService:
                 # اطمینان از وجود کاربر
                 await self._ensure_user_exists(user_id)
                 
-                now = datetime.utcnow().isoformat()
+                now = datetime.now(timezone.utc).isoformat()
                 
                 # افزایش موجودی
                 await self._conn.execute(
@@ -185,7 +185,7 @@ class WalletService:
                 
                 # ⚠️ CRITICAL: استفاده از UPDATE با WHERE balance >= amount
                 # فقط اگر موجودی کافی باشد، کسر می‌شود
-                now = datetime.utcnow().isoformat()
+                now = datetime.now(timezone.utc).isoformat()
                 
                 cursor = await self._conn.execute(
                     """

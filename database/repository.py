@@ -65,7 +65,7 @@ class BotRepository:
             raise ValueError("پارامترهای اجباری نمی‌توانند خالی باشند")
         
         try:
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             
             cursor = await self._conn.execute(
                 """
@@ -336,7 +336,7 @@ class BotRepository:
         - بررسی owner_id برای جلوگیری از تغییر وضعیت ربات دیگران
         """
         try:
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             
             # ⚠️ SECURITY: بررسی owner_id برای جلوگیری از unauthorized update
             cursor = await self._conn.execute(

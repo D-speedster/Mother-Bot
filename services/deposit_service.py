@@ -56,7 +56,7 @@ class DepositService:
             raise ValueError("حداقل یکی از فیش یا کد پیگیری باید ارسال شود")
         
         try:
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             
             cursor = await self._conn.execute(
                 """
@@ -202,7 +202,7 @@ class DepositService:
             - message: پیام توضیحی
         """
         try:
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             
             # ⚠️ CRITICAL: استفاده از UPDATE با WHERE status = 'pending'
             # فقط اگر وضعیت pending باشد تغییر می‌کند
@@ -288,7 +288,7 @@ class DepositService:
             - message: پیام توضیحی
         """
         try:
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             
             # ⚠️ CRITICAL: استفاده از UPDATE با WHERE status = 'pending'
             cursor = await self._conn.execute(

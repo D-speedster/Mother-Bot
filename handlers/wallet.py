@@ -592,7 +592,7 @@ async def callback_approve_deposit(
                 )
                 await deposit_service._conn.commit()
                 logger.info(f"✅ وضعیت درخواست {request_id} به pending برگشت")
-            except:
+            except Exception as e:
                 logger.error(f"❌ خطای دوبل: نتوانستیم وضعیت را برگردانیم!")
             
             await callback.answer(
@@ -628,7 +628,7 @@ async def callback_approve_deposit(
                 await callback.message.edit_caption(caption=new_text)
             else:
                 await callback.message.edit_text(new_text)
-        except:
+        except Exception as e:
             pass
         
         await callback.answer("✅ درخواست تأیید شد و کیف پول کاربر شارژ شد", show_alert=True)
@@ -712,7 +712,7 @@ async def callback_reject_deposit(
                 await callback.message.edit_caption(caption=new_text)
             else:
                 await callback.message.edit_text(new_text)
-        except:
+        except Exception as e:
             pass
         
         await callback.answer("✅ درخواست رد شد و به کاربر اطلاع داده شد", show_alert=True)

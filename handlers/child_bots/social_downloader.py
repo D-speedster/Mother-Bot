@@ -37,16 +37,14 @@ class SocialDownloaderStates(StatesGroup):
 
 
 # ========== URL Cache ==========
-# ⚠️ MVP Solution: ذخیره URL در حافظه با hash
-# برای production باید از Redis یا database استفاده شود
-_url_cache: dict[str, str] = {}
-# کلید: url_hash (8 کاراکتر)، مقدار: URL کامل
-
-# ⚠️ TODO (فاز بعد):
-# - استفاده از Redis با TTL برای distributed systems
-# - یا ذخیره در database با expiry time
-# - اضافه کردن timestamp و پاکسازی خودکار cache‌های قدیمی‌تر از 1 ساعت
-# - فعلاً برای MVP همین کافی است (single-instance bot)
+# استفاده از TTLCache برای پاکسازی خودکار cache‌های قدیمی‌تر از ۱ ساعت
+try:
+    from cachetools import TTLCache
+    _url_cache: dict[str, str] = TTLCache(maxsize=1000, ttl=3600)  # ۱ ساعت TTL
+except ImportError:
+    # Fallback در صورت عدم نصب cachetools
+    _url_cache: dict[str, str] = {}
+    logger.warning("⚠️ cachetools نصب نیست — URL cache بدون TTL استفاده می‌شود")
 
 
 def cleanup_old_cache_entries():
@@ -275,7 +273,7 @@ async def handle_url_input(message: Message, state: FSMContext, download_service
         # حذف پیام "در حال پردازش"
         try:
             await processing_msg.delete()
-        except:
+        except Exception as e:
             pass
         
         # ارسال اطلاعات با کیبورد
@@ -293,7 +291,7 @@ async def handle_url_input(message: Message, state: FSMContext, download_service
         # حذف پیام "در حال پردازش"
         try:
             await processing_msg.delete()
-        except:
+        except Exception as e:
             pass
         
         await message.answer(
@@ -310,7 +308,7 @@ async def handle_url_input(message: Message, state: FSMContext, download_service
         # حذف پیام "در حال پردازش"
         try:
             await processing_msg.delete()
-        except:
+        except Exception as e:
             pass
         
         await message.answer(
@@ -327,7 +325,7 @@ async def handle_url_input(message: Message, state: FSMContext, download_service
         # حذف پیام "در حال پردازش"
         try:
             await processing_msg.delete()
-        except:
+        except Exception as e:
             pass
         
         await message.answer(
@@ -400,7 +398,7 @@ async def handle_quality_selection(callback: CallbackQuery, state: FSMContext, d
         # آپدیت پیام
         try:
             await download_msg.edit_text("📤 در حال ارسال...")
-        except:
+        except Exception as e:
             pass
         
         # ارسال فایل
@@ -414,7 +412,7 @@ async def handle_quality_selection(callback: CallbackQuery, state: FSMContext, d
         # حذف پیام "در حال ارسال"
         try:
             await download_msg.delete()
-        except:
+        except Exception as e:
             pass
         
         # ⚠️ FIX: حذف URL از cache بعد از دانلود موفق
@@ -429,7 +427,7 @@ async def handle_quality_selection(callback: CallbackQuery, state: FSMContext, d
         # حذف پیام "در حال دانلود"
         try:
             await download_msg.delete()
-        except:
+        except Exception as e:
             pass
         
         await callback.message.answer(
@@ -446,7 +444,7 @@ async def handle_quality_selection(callback: CallbackQuery, state: FSMContext, d
         # حذف پیام "در حال دانلود"
         try:
             await download_msg.delete()
-        except:
+        except Exception as e:
             pass
         
         await callback.message.answer(
@@ -464,7 +462,7 @@ async def handle_quality_selection(callback: CallbackQuery, state: FSMContext, d
         # حذف پیام "در حال دانلود"
         try:
             await download_msg.delete()
-        except:
+        except Exception as e:
             pass
         
         await callback.message.answer(
