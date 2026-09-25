@@ -417,6 +417,12 @@ class BotRunner:
             # بررسی Local Bot API
             config = LocalBotAPIConfig.from_env()
             
+            # ✅ FIX: Debug logging برای troubleshooting
+            logger.debug(
+                f"🔍 Local API Config for bot {bot_id}: "
+                f"enabled={config.enabled}, port={config.port}, url={config.api_url}"
+            )
+            
             # ساخت Bot با یا بدون Local API
             if config.enabled:
                 # استفاده از Local Bot API Server
@@ -425,12 +431,12 @@ class BotRunner:
                 )
                 bot = Bot(token=token, session=session)
                 logger.info(
-                    f"✅ ربات {bot_id} از Local Bot API استفاده می‌کند: {config.api_url}"
+                    f"✅ ربات {bot_id} تنظیم شد برای استفاده از Local Bot API: {config.api_url}"
                 )
             else:
                 # استفاده از Standard Telegram API
                 bot = Bot(token=token)
-                logger.debug(f"ℹ️ ربات {bot_id} از Standard Telegram API استفاده می‌کند")
+                logger.info(f"ℹ️ ربات {bot_id} از Standard Telegram API استفاده می‌کند")
             
             # ✅ OWNER-BASED AUTH: ذخیره Bot Context در Bot Instance
             # این context برای Authorization در Admin Panel استفاده می‌شود

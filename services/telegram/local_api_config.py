@@ -7,8 +7,14 @@ import os
 import logging
 from typing import Optional
 from dataclasses import dataclass
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+# ✅ FIX: بارگذاری .env قبل از استفاده از os.getenv()
+# این تضمین می‌کند که environment variables حتی اگر این module
+# مستقل import شود، به درستی load شده‌اند
+load_dotenv()
 
 
 @dataclass

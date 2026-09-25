@@ -104,44 +104,78 @@ class FileTransferService:
         """
         self.timeout = aiohttp.ClientTimeout(total=timeout)
     
-    async def upload_to_host(self, file_path: str, filename: str) -> str:
+    async def upload_to_host(
+        self,
+        telegram_file_path: str,
+        original_filename: str,
+        progress_callback: Optional[Callable[[int, int], None]] = None
+    ) -> str:
         """
         آپلود فایل به هاست و دریافت لینک مستقیم
         
-        ⚠️ فعلاً: این قابلیت پیاده‌سازی نشده است
-        
         Args:
-            file_path: مسیر فایل محلی
-            filename: نام فایل
+            telegram_file_path: مسیر فایل دانلود شده از Telegram
+            original_filename: نام اصلی فایل
+            progress_callback: Callback برای Progress upload
             
         Returns:
             لینک مستقیم دانلود
             
         Raises:
-            HostNotConfiguredError: هاست هنوز تنظیم نشده است
-            
-        TODO (فاز بعد):
-        - اتصال به هاست ایرانی (FTP/SFTP/HTTP Upload)
-        - ساخت لینک مستقیم
-        - مدیریت فضای ذخیره‌سازی
-        - حذف خودکار فایل‌های قدیمی
+            HostNotConfiguredError: storage هنوز تنظیم نشده است
+            StorageError: خطا در آپلود
         """
-        logger.warning(
-            f"⚠️ تلاش برای آپلود فایل به هاست (هنوز پیاده نشده): {filename}"
-        )
+        from services.storage import StorageService, StorageDisabledError
         
-        raise HostNotConfiguredError(
-            "⏳ این قابلیت به زودی فعال می‌شود\n\n"
-            "فعلاً می‌توانید از قابلیت «لینک به فایل» استفاده کنید."
-        )
+        storage = StorageService()
+        
+        if not storage.is_enabled:
+            logger.warning("⚠️ Storage is disabled")
+            raise HostNotConfiguredError(
+                "⏳ این قابلیت به زودی فعال می‌شود\n\n"
+                "فعلاً می‌توانید از قابلیت «لینک به فایل» استفاده کنید."
+            )
+        
+        try:
+            logger.info(f"📤 Uploading to storage: {original_filename}")
+            
+            # آپلود به storage
+            stored_file = await storage.upload(
+                telegram_file_path,
+                original_filename,
+                progress_callback
+            )
+            
+            logger.info(f"✅ Upload successful: {stored_file.public_url}")
+            
+            return stored_file.public_url
+        
+        except StorageDisabledError:
+            raise HostNotConfiguredError(
+                "⏳ این قابلیت به زودی فعال می‌شود\n\n"
+                "فعلاً می‌توانید از قابلیت «لینک به فایل» استفاده کنید."
+            )
+        
+        except Exception as e:
+            logger.error(
+                f"❌ Upload to storage failed: {type(e).__name__}",
+                exc_info=True
+            )
+            raise
     
-    async def download_from_url(self, url: str, output_dir: str) -> str:
+    async def download_from_url(
+        self,
+        url: str,
+        output_dir: str,
+        progress_callback: Optional[Callable[[int, Optional[int]], None]] = None
+    ) -> str:
         """
-        دانلود فایل از لینک مستقیم
+        دانلود فایل از لینک مستقیم با Progress
         
         Args:
             url: لینک مستقیم فایل
             output_dir: پوشه موقت برای ذخیره فایل
+            progress_callback: Callback برای نمایش Progress (current, total)
             
         Returns:
             مسیر کامل فایل دانلود شده
@@ -153,6 +187,8 @@ class FileTransferService:
             
         Note:
         - فایل در پوشه موقت ذخیره می‌شود
+        - نام فایل به صورت هوشمند تشخیص داده می‌شود
+        - Progress به صورت throttled گزارش می‌شود
         - مسئولیت حذف فایل بعد از استفاده با فراخواننده است
         """
         # اعتبارسنجی URL
@@ -166,38 +202,37 @@ class FileTransferService:
         # ساخت پوشه خروجی
         os.makedirs(output_dir, exist_ok=True)
         
-        # استخراج نام فایل از URL
-        parsed = urlparse(url)
-        filename = os.path.basename(parsed.path) or 'downloaded_file'
-        output_path = os.path.join(output_dir, filename)
-        
         logger.info(f"🔽 شروع دانلود از URL: {url}")
         
         try:
             async with aiohttp.ClientSession(timeout=self.timeout) as session:
-                # مرحله ۱: بررسی حجم فایل با HEAD request
+                # مرحله ۱: بررسی اطلاعات فایل با HEAD request
+                headers = {}
+                final_url = url
+                total_size = None
+                
                 try:
                     async with session.head(url, allow_redirects=True) as response:
-                        if response.status != 200:
-                            raise DownloadError(
-                                f"سرور خطای {response.status} برگرداند"
-                            )
-                        
-                        # دریافت حجم فایل از header
-                        content_length = response.headers.get('Content-Length')
-                        if content_length:
-                            file_size = int(content_length)
+                        if response.status == 200:
+                            # ذخیره headers برای تشخیص نام فایل
+                            headers = {k.lower(): v for k, v in response.headers.items()}
+                            final_url = str(response.url)
                             
-                            # بررسی محدودیت حجم
-                            if file_size > MAX_FILE_SIZE:
-                                logger.warning(
-                                    f"⚠️ فایل بزرگتر از 2GB: {file_size} bytes"
+                            # دریافت حجم فایل
+                            content_length = headers.get('content-length')
+                            if content_length:
+                                total_size = int(content_length)
+                                
+                                # بررسی محدودیت حجم
+                                if total_size > MAX_FILE_SIZE:
+                                    logger.warning(
+                                        f"⚠️ فایل بزرگتر از 2GB: {total_size} bytes"
+                                    )
+                                    raise FileTooLargeError(total_size, MAX_FILE_SIZE)
+                                
+                                logger.info(
+                                    f"ℹ️ حجم فایل: {self._format_size(total_size)}"
                                 )
-                                raise FileTooLargeError(file_size, MAX_FILE_SIZE)
-                            
-                            logger.info(
-                                f"ℹ️ حجم فایل: {self._format_size(file_size)}"
-                            )
                 
                 except aiohttp.ClientError as e:
                     logger.warning(
@@ -212,17 +247,34 @@ class FileTransferService:
                             f"سرور خطای {response.status} برگرداند"
                         )
                     
-                    # بررسی مجدد حجم (اگر در HEAD نبود)
-                    content_length = response.headers.get('Content-Length')
-                    if content_length:
-                        file_size = int(content_length)
-                        if file_size > MAX_FILE_SIZE:
-                            raise FileTooLargeError(file_size, MAX_FILE_SIZE)
+                    # بروزرسانی headers و URL نهایی
+                    headers = {k.lower(): v for k, v in response.headers.items()}
+                    final_url = str(response.url)
                     
-                    # دانلود و ذخیره فایل
+                    # بررسی مجدد حجم (اگر در HEAD نبود)
+                    if not total_size:
+                        content_length = headers.get('content-length')
+                        if content_length:
+                            total_size = int(content_length)
+                            if total_size > MAX_FILE_SIZE:
+                                raise FileTooLargeError(total_size, MAX_FILE_SIZE)
+                    
+                    # تشخیص نام فایل
+                    filename = FilenameDetector.detect_filename(
+                        url=url,
+                        headers=headers,
+                        final_url=final_url
+                    )
+                    output_path = os.path.join(output_dir, filename)
+                    
+                    logger.info(f"📝 نام فایل تشخیص داده شده: {filename}")
+                    
+                    # دانلود و ذخیره فایل با Progress
                     downloaded_size = 0
+                    chunk_size = 8192
+                    
                     with open(output_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
+                        async for chunk in response.content.iter_chunked(chunk_size):
                             if chunk:
                                 f.write(chunk)
                                 downloaded_size += len(chunk)
@@ -235,6 +287,17 @@ class FileTransferService:
                                     raise FileTooLargeError(
                                         downloaded_size, MAX_FILE_SIZE
                                     )
+                                
+                                # گزارش Progress
+                                if progress_callback:
+                                    try:
+                                        await progress_callback(downloaded_size, total_size)
+                                    except Exception as e:
+                                        # خطای Progress نباید دانلود را fail کند
+                                        logger.warning(
+                                            f"⚠️ خطا در Progress callback (ignored): "
+                                            f"{type(e).__name__}"
+                                        )
                     
                     logger.info(
                         f"✅ دانلود موفق: {filename} "
